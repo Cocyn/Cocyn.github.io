@@ -25,6 +25,7 @@
         init() {
             this.tryAddSettingsToLampa();
             this.tryListenPlayer();
+            this.addMenuButton(); // Добавляем кнопку в меню
             if (this.settings.autoStart && this.settings.enabled) {
                 this.start();
             }
@@ -161,6 +162,25 @@
 
         stop() {
             console.log(`[${this.name}] Автоскип остановлен.`);
+        }
+
+        addMenuButton() {
+            const tryAdd = (attempt = 0) => {
+                const menu = document.querySelector('.menu__list');
+                if (menu) {
+                    if (!menu.querySelector('.menu-autoskip')) {
+                        const btn = document.createElement('li');
+                        btn.className = 'menu__item menu-autoskip selector focusable';
+                        btn.tabIndex = 0;
+                        btn.innerHTML = `<span>AutoSkip</span>`;
+                        btn.onclick = () => this.openSettingsModal();
+                        menu.appendChild(btn);
+                    }
+                } else if (attempt < 15) {
+                    setTimeout(() => tryAdd(attempt + 1), 2000);
+                }
+            };
+            tryAdd();
         }
     }
 
