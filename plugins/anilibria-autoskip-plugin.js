@@ -23,32 +23,44 @@
         }
 
         init() {
-            this.addSettingsToLampa();
-            this.listenPlayer();
+            this.tryAddSettingsToLampa();
+            this.tryListenPlayer();
             if (this.settings.autoStart && this.settings.enabled) {
                 this.start();
             }
             window[PLUGIN_ID] = this;
         }
 
-        addSettingsToLampa() {
-            const tryRegisterSettings = () => {
-                if (typeof Lampa !== 'undefined' && Lampa.Settings && Lampa.Settings.component) {
-                    Lampa.Settings.component({
-                        component: this.component,
-                        name: this.name,
-                        icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-                    });
-                    Lampa.Settings.listener.follow('open', (e) => {
-                        if (e.name === this.component) this.openSettingsModal();
-                    });
-                    console.log(`[${this.name}] Настройки успешно добавлены в Lampa.`);
-                } else {
-                    console.log(`[${this.name}] Настройки не найдены, повторная попытка через 2 секунды...`);
-                    setTimeout(tryRegisterSettings, 2000);
-                }
-            };
-            tryRegisterSettings();
+        tryAddSettingsToLampa(attempt = 0) {
+            if (typeof Lampa !== 'undefined' && Lampa.Settings && Lampa.Settings.component) {
+                Lampa.Settings.component({
+                    component: this.component,
+                    name: this.name,
+                    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+                });
+                Lampa.Settings.listener.follow('open', (e) => {
+                    if (e.name === this.component) this.openSettingsModal();
+                });
+                console.log(`[${this.name}] Настройки успешно добавлены в Lampa.`);
+            } else if (attempt < 15) { // 15 попыток по 2 секунды = 30 секунд
+                console.log(`[${this.name}] Настройки не найдены, повторная попытка через 2 секунды...`);
+                setTimeout(() => this.tryAddSettingsToLampa(attempt + 1), 2000);
+            } else {
+                console.error(`[${this.name}] Не удалось добавить настройки в Lampa за 30 секунд.`);
+            }
+        }
+
+        tryListenPlayer(attempt = 0) {
+            if (typeof Lampa !== 'undefined' && Lampa.Player && Lampa.Player.listener) {
+                Lampa.Player.listener.follow('start', () => this.onPlayerStart());
+                Lampa.Player.listener.follow('stop', () => this.onPlayerStop());
+                console.log(`[${this.name}] Подписка на события плеера выполнена.`);
+            } else if (attempt < 15) {
+                console.log(`[${this.name}] Плеер не найден, повторная попытка через 2 секунды...`);
+                setTimeout(() => this.tryListenPlayer(attempt + 1), 2000);
+            } else {
+                console.error(`[${this.name}] Не удалось подписаться на события плеера за 30 секунд.`);
+            }
         }
 
         openSettingsModal() {
@@ -79,13 +91,6 @@
                 }, 100);
             } else {
                 alert('Настройки доступны только в Lampa!');
-            }
-        }
-
-        listenPlayer() {
-            if (typeof Lampa !== 'undefined' && Lampa.Player && Lampa.Player.listener) {
-                Lampa.Player.listener.follow('start', () => this.onPlayerStart());
-                Lampa.Player.listener.follow('stop', () => this.onPlayerStop());
             }
         }
 
