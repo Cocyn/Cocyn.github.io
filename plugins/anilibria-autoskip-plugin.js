@@ -165,7 +165,7 @@
         }
 
         addMenuButton() {
-            const tryAdd = (attempt = 0) => {
+            const tryAdd = () => {
                 const menu = document.querySelector('.menu__list');
                 if (menu) {
                     if (!menu.querySelector('.menu-autoskip')) {
@@ -175,12 +175,12 @@
                         btn.innerHTML = `<span>AutoSkip</span>`;
                         btn.onclick = () => this.openSettingsModal();
                         menu.appendChild(btn);
+                        console.log('[AutoSkip] Кнопка добавлена в меню');
                     }
-                } else if (attempt < 15) {
-                    setTimeout(() => tryAdd(attempt + 1), 2000);
                 }
             };
-            tryAdd();
+            setInterval(tryAdd, 2000); // Проверяем каждые 2 секунды
+            tryAdd(); // И сразу при инициализации
         }
     }
 
