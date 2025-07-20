@@ -19,6 +19,7 @@
             this.isRunning = false;
             this.video = null;
             this.timeHandler = null;
+            console.log(`[${this.name}] Версия плагина: ${this.version}`);
             this.init();
         }
 
@@ -166,6 +167,7 @@
 
         addMenuButton() {
             const tryAdd = () => {
+                console.log('[AutoSkip] Попытка добавить кнопку в меню...');
                 const menu = document.querySelector('.menu__list');
                 if (menu) {
                     if (!menu.querySelector('.menu-autoskip')) {
@@ -173,10 +175,17 @@
                         btn.className = 'menu__item menu-autoskip selector focusable';
                         btn.tabIndex = 0;
                         btn.innerHTML = `<span>AutoSkip</span>`;
-                        btn.onclick = () => this.openSettingsModal();
+                        btn.onclick = () => {
+                            console.log('[AutoSkip] Клик по кнопке AutoSkip');
+                            this.openSettingsModal();
+                        };
                         menu.appendChild(btn);
                         console.log('[AutoSkip] Кнопка добавлена в меню');
+                    } else {
+                        console.log('[AutoSkip] Кнопка уже есть в меню');
                     }
+                } else {
+                    console.log('[AutoSkip] Меню не найдено');
                 }
             };
             setInterval(tryAdd, 2000); // Проверяем каждые 2 секунды
