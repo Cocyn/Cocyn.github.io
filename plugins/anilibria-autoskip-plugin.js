@@ -24,14 +24,18 @@
         }
 
         init() {
+            console.log('[AutoSkip] init start');
             this.tryAddSettingsToLampa();
+            console.log('[AutoSkip] после tryAddSettingsToLampa');
             this.tryListenPlayer();
+            console.log('[AutoSkip] после tryListenPlayer');
             console.log('[AutoSkip] Вызов addMenuButton');
-            this.addMenuButton(); // Добавляем кнопку в меню
+            this.addMenuButton();
             if (this.settings.autoStart && this.settings.enabled) {
                 this.start();
             }
             window[PLUGIN_ID] = this;
+            console.log('[AutoSkip] init end');
         }
 
         tryAddSettingsToLampa(attempt = 0) {
