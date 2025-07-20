@@ -6,68 +6,46 @@
 
     class AniLibriaAutoSkip {
         constructor() {
-            this.version = '1.0.1';
-            this.component = 'anilibria_autoskip';
+            this.version = '2.0.0';
             this.name = 'AniLibria AutoSkip';
             this.settings = Object.assign({
                 enabled: true,
-                autoStart: true,
                 skipOpenings: true,
-                skipEndings: true,
-                showNotifications: true
+                skipEndings: true
             }, this.loadSettings());
-            this.isRunning = false;
+            this.stats = Object.assign({
+                skips: 0,
+                seconds: 0
+            }, this.loadStats());
             this.video = null;
             this.timeHandler = null;
-            console.log(`[${this.name}] Версия плагина: ${this.version}`);
+            console.log(`[${this.name}] Версия: ${this.version}`);
             this.init();
         }
 
         init() {
-            console.log('[AutoSkip] init start');
-            this.tryAddSettingsToLampa();
-            console.log('[AutoSkip] после tryAddSettingsToLampa');
-            this.tryListenPlayer();
-            console.log('[AutoSkip] после tryListenPlayer');
-            console.log('[AutoSkip] Вызов addMenuButton');
             this.addMenuButton();
-            if (this.settings.autoStart && this.settings.enabled) {
-                this.start();
-            }
+            this.listenPlayer();
             window[PLUGIN_ID] = this;
-            console.log('[AutoSkip] init end');
         }
 
-        tryAddSettingsToLampa(attempt = 0) {
-            if (typeof Lampa !== 'undefined' && Lampa.Settings && Lampa.Settings.component) {
-                Lampa.Settings.component({
-                    component: this.component,
-                    name: this.name,
-                    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-                });
-                Lampa.Settings.listener.follow('open', (e) => {
-                    if (e.name === this.component) this.openSettingsModal();
-                });
-                console.log(`[${this.name}] Настройки успешно добавлены в Lampa.`);
-            } else if (attempt < 15) { // 15 попыток по 2 секунды = 30 секунд
-                console.log(`[${this.name}] Настройки не найдены, повторная попытка через 2 секунды...`);
-                setTimeout(() => this.tryAddSettingsToLampa(attempt + 1), 2000);
-            } else {
-                console.error(`[${this.name}] Не удалось добавить настройки в Lampa за 30 секунд.`);
-            }
-        }
-
-        tryListenPlayer(attempt = 0) {
-            if (typeof Lampa !== 'undefined' && Lampa.Player && Lampa.Player.listener) {
-                Lampa.Player.listener.follow('start', () => this.onPlayerStart());
-                Lampa.Player.listener.follow('stop', () => this.onPlayerStop());
-                console.log(`[${this.name}] Подписка на события плеера выполнена.`);
-            } else if (attempt < 15) {
-                console.log(`[${this.name}] Плеер не найден, повторная попытка через 2 секунды...`);
-                setTimeout(() => this.tryListenPlayer(attempt + 1), 2000);
-            } else {
-                console.error(`[${this.name}] Не удалось подписаться на события плеера за 30 секунд.`);
-            }
+        addMenuButton() {
+            const tryAdd = () => {
+                const menu = document.querySelector('.menu__list');
+                if (menu) {
+                    if (!menu.querySelector('.menu-autoskip')) {
+                        const btn = document.createElement('li');
+                        btn.className = 'menu__item menu-autoskip selector focusable';
+                        btn.tabIndex = 0;
+                        btn.innerHTML = `<span>AutoSkip</span>`;
+                        btn.onclick = () => this.openSettingsModal();
+                        menu.appendChild(btn);
+                        console.log('[AutoSkip] Кнопка добавлена в меню');
+                    }
+                }
+            };
+            setInterval(tryAdd, 2000);
+            tryAdd();
         }
 
         openSettingsModal() {
@@ -75,11 +53,11 @@
                 <div style="padding:20px;max-width:400px;color:#fff">
                     <h2 style="color:#4CAF50">${this.name}</h2>
                     <label><input type="checkbox" data-setting="enabled" ${this.settings.enabled ? 'checked' : ''}/> Включить AutoSkip</label><br>
-                    <label><input type="checkbox" data-setting="autoStart" ${this.settings.autoStart ? 'checked' : ''}/> Автозапуск</label><br>
                     <label><input type="checkbox" data-setting="skipOpenings" ${this.settings.skipOpenings ? 'checked' : ''}/> Пропускать опенинги</label><br>
                     <label><input type="checkbox" data-setting="skipEndings" ${this.settings.skipEndings ? 'checked' : ''}/> Пропускать эндинги</label><br>
-                    <label><input type="checkbox" data-setting="showNotifications" ${this.settings.showNotifications ? 'checked' : ''}/> Показывать уведомления</label><br>
                     <div style="margin-top:10px;font-size:13px;color:#aaa">Версия: ${this.version}</div>
+                    <div style="margin-top:10px;font-size:15px;color:#fff">Пропусков: <b>${this.stats.skips}</b></div>
+                    <div style="font-size:15px;color:#fff">Сэкономлено времени: <b>${this.stats.seconds}</b> сек.</div>
                 </div>
             `;
             if (typeof Lampa !== 'undefined' && Lampa.Modal) {
@@ -101,12 +79,26 @@
             }
         }
 
+        listenPlayer() {
+            const tryListen = () => {
+                if (typeof Lampa !== 'undefined' && Lampa.Player && Lampa.Player.listener) {
+                    Lampa.Player.listener.follow('start', () => this.onPlayerStart());
+                    Lampa.Player.listener.follow('stop', () => this.onPlayerStop());
+                    console.log('[AutoSkip] Подписка на события плеера выполнена.');
+                } else {
+                    setTimeout(tryListen, 2000);
+                }
+            };
+            tryListen();
+        }
+
         onPlayerStart() {
             if (!this.settings.enabled) return;
             this.video = this.getVideo();
             if (this.video) {
                 this.timeHandler = () => this.checkSkip();
                 this.video.addEventListener('timeupdate', this.timeHandler);
+                console.log('[AutoSkip] Видео найдено, обработчик добавлен');
             }
         }
 
@@ -126,25 +118,32 @@
             if (!this.video) return;
             const t = this.video.currentTime;
             const d = this.video.duration;
-
-            // Пример данных для пропуска
+            // Примерные значения, можно сделать настройками
             const skipData = {
                 opening: { start: 85, end: 105 },
                 ending: { start: d - 90, end: d - 30 }
             };
-
             if (this.settings.skipOpenings && t >= skipData.opening.start && t <= skipData.opening.end) {
+                const skipped = skipData.opening.end - t;
                 this.video.currentTime = skipData.opening.end;
-                this.notify('Опенинг пропущен');
+                this.stats.skips++;
+                this.stats.seconds += Math.round(skipped);
+                this.saveStats();
+                this.notify(`Опенинг пропущен: ${Math.round(skipped)} сек.`);
+                console.log(`[AutoSkip] Опенинг пропущен, сэкономлено: ${Math.round(skipped)} сек.`);
             }
             if (this.settings.skipEndings && t >= skipData.ending.start && t <= skipData.ending.end) {
+                const skipped = d - 1 - t;
                 this.video.currentTime = d - 1;
-                this.notify('Эндинг пропущен');
+                this.stats.skips++;
+                this.stats.seconds += Math.round(skipped);
+                this.saveStats();
+                this.notify(`Эндинг пропущен: ${Math.round(skipped)} сек.`);
+                console.log(`[AutoSkip] Эндинг пропущен, сэкономлено: ${Math.round(skipped)} сек.`);
             }
         }
 
         notify(msg) {
-            if (!this.settings.showNotifications) return;
             if (typeof Lampa !== 'undefined' && Lampa.Noty) {
                 Lampa.Noty.show(msg);
             } else {
@@ -157,44 +156,16 @@
                 return JSON.parse(localStorage.getItem('anilibria_autoskip_settings') || '{}');
             } catch (e) { return {}; }
         }
-
         saveSettings() {
             localStorage.setItem('anilibria_autoskip_settings', JSON.stringify(this.settings));
         }
-
-        start() {
-            console.log(`[${this.name}] Автоскип запущен.`);
+        loadStats() {
+            try {
+                return JSON.parse(localStorage.getItem('anilibria_autoskip_stats') || '{}');
+            } catch (e) { return {skips:0,seconds:0}; }
         }
-
-        stop() {
-            console.log(`[${this.name}] Автоскип остановлен.`);
-        }
-
-        addMenuButton() {
-            const tryAdd = () => {
-                console.log('[AutoSkip] Попытка добавить кнопку в меню...');
-                const menu = document.querySelector('.menu__list');
-                if (menu) {
-                    if (!menu.querySelector('.menu-autoskip')) {
-                        const btn = document.createElement('li');
-                        btn.className = 'menu__item menu-autoskip selector focusable';
-                        btn.tabIndex = 0;
-                        btn.innerHTML = `<span>AutoSkip</span>`;
-                        btn.onclick = () => {
-                            console.log('[AutoSkip] Клик по кнопке AutoSkip');
-                            this.openSettingsModal();
-                        };
-                        menu.appendChild(btn);
-                        console.log('[AutoSkip] Кнопка добавлена в меню');
-                    } else {
-                        console.log('[AutoSkip] Кнопка уже есть в меню');
-                    }
-                } else {
-                    console.log('[AutoSkip] Меню не найдено');
-                }
-            };
-            setInterval(tryAdd, 2000); // Проверяем каждые 2 секунды
-            tryAdd(); // И сразу при инициализации
+        saveStats() {
+            localStorage.setItem('anilibria_autoskip_stats', JSON.stringify(this.stats));
         }
     }
 
