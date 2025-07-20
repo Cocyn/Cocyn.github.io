@@ -1,32 +1,23 @@
-// ==UserScript==
-// @name         AniLibria AutoSkip for Lampa (clean)
-// @version      1.0.0
-// @description  Автоматический пропуск опенингов и эндингов в Lampa
-// @author       OpenAI + community
-// @match        *://*/*
-// @grant        none
-// ==/UserScript==
 
 (function() {
     'use strict';
 
-    const PLUGIN_ID = 'anilibria_autoskip_clean';
+    const PLUGIN_ID = 'anilibria_autoskip';
     if (window[PLUGIN_ID]) return;
 
     class AniLibriaAutoSkip {
         constructor() {
-            this.version = '1.0.0';
+            this.version = '1.0.1';
             this.component = 'anilibria_autoskip';
             this.name = 'AniLibria AutoSkip';
             this.settings = Object.assign({
                 enabled: true,
+                autoStart: true,
                 skipOpenings: true,
                 skipEndings: true,
                 showNotifications: true
             }, this.loadSettings());
             this.isRunning = false;
-            this.lastSkip = 0;
-            this.skipData = null;
             this.video = null;
             this.timeHandler = null;
             this.init();
@@ -35,34 +26,50 @@
         init() {
             this.addSettingsToLampa();
             this.listenPlayer();
+            if (this.settings.autoStart && this.settings.enabled) {
+                this.start();
+            }
             window[PLUGIN_ID] = this;
         }
 
         addSettingsToLampa() {
-            if (typeof Lampa !== 'undefined' && Lampa.Settings && Lampa.Settings.component) {
-                Lampa.Settings.component({
-                    component: this.component,
-                    name: this.name,
-                    icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-                });
-                Lampa.Settings.listener.follow('open', (e) => {
-                    if (e.name === this.component) this.openSettingsModal();
-                });
-            }
+            const tryRegisterSettings = () => {
+                if (typeof Lampa !== 'undefined' && Lampa.Settings && Lampa.Settings.component) {
+                    Lampa.Settings.component({
+                        component: this.component,
+                        name: this.name,
+                        icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+                    });
+                    Lampa.Settings.listener.follow('open', (e) => {
+                        if (e.name === this.component) this.openSettingsModal();
+                    });
+                    console.log(`[${this.name}] Настройки успешно добавлены в Lampa.`);
+                } else {
+                    console.log(`[${this.name}] Настройки не найдены, повторная попытка через 2 секунды...`);
+                    setTimeout(tryRegisterSettings, 2000);
+                }
+            };
+            tryRegisterSettings();
         }
 
         openSettingsModal() {
-            const html = `
-                <div style="padding:20px;max-width:400px;color:#fff">
-                    <h2 style="color:#4CAF50">${this.name}</h2>
-                    <label><input type="checkbox" data-setting="enabled" ${this.settings.enabled ? 'checked' : ''}/> Включить AutoSkip</label><br>
-                    <label><input type="checkbox" data-setting="skipOpenings" ${this.settings.skipOpenings ? 'checked' : ''}/> Пропускать опенинги</label><br>
-                    <label><input type="checkbox" data-setting="skipEndings" ${this.settings.skipEndings ? 'checked' : ''}/> Пропускать эндинги</label><br>
-                    <label><input type="checkbox" data-setting="showNotifications" ${this.settings.showNotifications ? 'checked' : ''}/> Показывать уведомления</label><br>
-                    <div style="margin-top:10px;font-size:13px;color:#aaa">Версия: ${this.version}</div>
-                </div>
-            `;
             if (typeof Lampa !== 'undefined' && Lampa.Modal) {
+                let html = `
+                    <div class="settings-modal" style="padding:20px;max-width:400px;color:#fff">
+                        <div class="settings-title" style="font-size:22px;font-weight:bold;margin-bottom:10px;">${this.name}</div>
+                        <div class="settings-list" style="margin-bottom:15px;">
+                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="enabled" ${this.settings.enabled ? 'checked' : ''}/> Включить AutoSkip</label>
+                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="autoStart" ${this.settings.autoStart ? 'checked' : ''}/> Автозапуск</label>
+                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="skipOpenings" ${this.settings.skipOpenings ? 'checked' : ''}/> Пропускать опенинги</label>
+                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="skipEndings" ${this.settings.skipEndings ? 'checked' : ''}/> Пропускать эндинги</label>
+                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="showNotifications" ${this.settings.showNotifications ? 'checked' : ''}/> Показывать уведомления</label>
+                        </div>
+                        <div class="settings-footer" style="display:flex;align-items:center;justify-content:space-between;">
+                            <button class="settings-back" style="background:#4CAF50;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;">Назад</button>
+                            <span class="settings-version" style="font-size:13px;color:#aaa;">Версия: ${this.version}</span>
+                        </div>
+                    </div>
+                `;
                 Lampa.Modal.open({
                     title: this.name,
                     html,
@@ -75,6 +82,8 @@
                             this.saveSettings();
                         };
                     });
+                    const backBtn = document.querySelector('.settings-back');
+                    if (backBtn) backBtn.onclick = () => Lampa.Modal.close();
                 }, 100);
             } else {
                 alert('Настройки доступны только в Lampa!');
@@ -91,8 +100,6 @@
         onPlayerStart() {
             if (!this.settings.enabled) return;
             this.video = this.getVideo();
-            this.lastSkip = 0;
-            this.skipData = this.getDefaultSkipData();
             if (this.video) {
                 this.timeHandler = () => this.checkSkip();
                 this.video.addEventListener('timeupdate', this.timeHandler);
@@ -111,31 +118,24 @@
             return document.querySelector('video');
         }
 
-        getDefaultSkipData() {
-            // Можно расширить для получения реальных данных с AniLibria API
-            return {
-                opening: { start: 85, end: 105 }, // 1:25 - 1:45
-                ending: { start: -90, end: -30 }  // последние 1:30 - 0:30
-            };
-        }
-
         checkSkip() {
-            if (!this.video || !this.skipData) return;
+            if (!this.video) return;
             const t = this.video.currentTime;
             const d = this.video.duration;
-            // Не скипать слишком часто
-            if (Math.abs(t - this.lastSkip) < 5) return;
+            console.log('[AutoSkip] checkSkip', t, d); // Для отладки
 
-            // Opening
-            if (this.settings.skipOpenings && t >= this.skipData.opening.start && t <= this.skipData.opening.end) {
-                this.video.currentTime = this.skipData.opening.end;
-                this.lastSkip = this.skipData.opening.end;
+            // Пример данных для пропуска
+            const skipData = {
+                opening: { start: 85, end: 105 },
+                ending: { start: d - 90, end: d - 30 }
+            };
+
+            if (this.settings.skipOpenings && t >= skipData.opening.start && t <= skipData.opening.end) {
+                this.video.currentTime = skipData.opening.end;
                 this.notify('Опенинг пропущен');
             }
-            // Ending
-            if (this.settings.skipEndings && d && t >= d + this.skipData.ending.start && t <= d + this.skipData.ending.end) {
+            if (this.settings.skipEndings && t >= skipData.ending.start && t <= skipData.ending.end) {
                 this.video.currentTime = d - 1;
-                this.lastSkip = d - 1;
                 this.notify('Эндинг пропущен');
             }
         }
@@ -145,22 +145,26 @@
             if (typeof Lampa !== 'undefined' && Lampa.Noty) {
                 Lampa.Noty.show(msg);
             } else {
-                // fallback
-                let n = document.createElement('div');
-                n.style = 'position:fixed;top:20px;right:20px;background:#222;color:#fff;padding:10px 20px;z-index:9999;border-radius:8px';
-                n.textContent = msg;
-                document.body.appendChild(n);
-                setTimeout(() => n.remove(), 2000);
+                alert(msg);
             }
         }
 
         loadSettings() {
             try {
                 return JSON.parse(localStorage.getItem('anilibria_autoskip_settings') || '{}');
-            } catch(e){ return {}; }
+            } catch (e) { return {}; }
         }
+
         saveSettings() {
             localStorage.setItem('anilibria_autoskip_settings', JSON.stringify(this.settings));
+        }
+
+        start() {
+            console.log(`[${this.name}] Автоскип запущен.`);
+        }
+
+        stop() {
+            console.log(`[${this.name}] Автоскип остановлен.`);
         }
     }
 
