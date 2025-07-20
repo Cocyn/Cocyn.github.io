@@ -1,4 +1,3 @@
-
 (function() {
     'use strict';
 
@@ -53,23 +52,18 @@
         }
 
         openSettingsModal() {
+            const html = `
+                <div style="padding:20px;max-width:400px;color:#fff">
+                    <h2 style="color:#4CAF50">${this.name}</h2>
+                    <label><input type="checkbox" data-setting="enabled" ${this.settings.enabled ? 'checked' : ''}/> Включить AutoSkip</label><br>
+                    <label><input type="checkbox" data-setting="autoStart" ${this.settings.autoStart ? 'checked' : ''}/> Автозапуск</label><br>
+                    <label><input type="checkbox" data-setting="skipOpenings" ${this.settings.skipOpenings ? 'checked' : ''}/> Пропускать опенинги</label><br>
+                    <label><input type="checkbox" data-setting="skipEndings" ${this.settings.skipEndings ? 'checked' : ''}/> Пропускать эндинги</label><br>
+                    <label><input type="checkbox" data-setting="showNotifications" ${this.settings.showNotifications ? 'checked' : ''}/> Показывать уведомления</label><br>
+                    <div style="margin-top:10px;font-size:13px;color:#aaa">Версия: ${this.version}</div>
+                </div>
+            `;
             if (typeof Lampa !== 'undefined' && Lampa.Modal) {
-                let html = `
-                    <div class="settings-modal" style="padding:20px;max-width:400px;color:#fff">
-                        <div class="settings-title" style="font-size:22px;font-weight:bold;margin-bottom:10px;">${this.name}</div>
-                        <div class="settings-list" style="margin-bottom:15px;">
-                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="enabled" ${this.settings.enabled ? 'checked' : ''}/> Включить AutoSkip</label>
-                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="autoStart" ${this.settings.autoStart ? 'checked' : ''}/> Автозапуск</label>
-                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="skipOpenings" ${this.settings.skipOpenings ? 'checked' : ''}/> Пропускать опенинги</label>
-                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="skipEndings" ${this.settings.skipEndings ? 'checked' : ''}/> Пропускать эндинги</label>
-                            <label style="display:block;margin-bottom:7px;"><input type="checkbox" data-setting="showNotifications" ${this.settings.showNotifications ? 'checked' : ''}/> Показывать уведомления</label>
-                        </div>
-                        <div class="settings-footer" style="display:flex;align-items:center;justify-content:space-between;">
-                            <button class="settings-back" style="background:#4CAF50;color:#fff;border:none;padding:7px 18px;border-radius:4px;cursor:pointer;">Назад</button>
-                            <span class="settings-version" style="font-size:13px;color:#aaa;">Версия: ${this.version}</span>
-                        </div>
-                    </div>
-                `;
                 Lampa.Modal.open({
                     title: this.name,
                     html,
@@ -82,8 +76,6 @@
                             this.saveSettings();
                         };
                     });
-                    const backBtn = document.querySelector('.settings-back');
-                    if (backBtn) backBtn.onclick = () => Lampa.Modal.close();
                 }, 100);
             } else {
                 alert('Настройки доступны только в Lampa!');
@@ -122,7 +114,6 @@
             if (!this.video) return;
             const t = this.video.currentTime;
             const d = this.video.duration;
-            console.log('[AutoSkip] checkSkip', t, d); // Для отладки
 
             // Пример данных для пропуска
             const skipData = {
