@@ -26,6 +26,7 @@
         init() {
             this.tryAddSettingsToLampa();
             this.tryListenPlayer();
+            console.log('[AutoSkip] Вызов addMenuButton');
             this.addMenuButton(); // Добавляем кнопку в меню
             if (this.settings.autoStart && this.settings.enabled) {
                 this.start();
