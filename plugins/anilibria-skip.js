@@ -185,13 +185,13 @@
                     <div class="form-group">
                         <label>API ключ KinopoiskDev:</label>
                         <input type="text" id="kinopoisk-key" value="${this.settings.kinopoisk_api_key}" 
-                               placeholder="C0JDGQR-QN7MQ1Z-P5YDSXB-WWZ0DPT">
+                               placeholder="Введите API ключ с kinopoisk.dev">
                         <small>Обязательно! Получите ключ на <a href="https://kinopoisk.dev/" target="_blank">kinopoisk.dev</a></small>
                     </div>
                     <div class="form-group">
                         <label>API ключ Anilibria (опционально):</label>
                         <input type="text" id="anilibria-key" value="${this.settings.anilibria_api_key}" 
-                               placeholder="eyJpdiI6IjdDb1hSMmtGTGx0MFJjc0dhMDl6YWc9PSIsInZhbHVlIjoidHptdS80aG10U0k5WWpwTWpkYUZGVnpXVFRVOVczcWtydm5mSy9WVTFBVVltUW5XV0ZwT05TbVBUQjdnOWdvUiIsIm1hYyI6IjA5NTc3YjBiNzlmNmMyZTA5N2JkZWNmZWUyMmY0MzJjMzZjMDQ2ZDQ1YjFmN2E5MjZmYzdhZGVkNjIwNWI5YjYiLCJ0YWciOiIifQ==">
+                               placeholder="Введите API ключ Anilibria, если требуется">
                     </div>
                     <div class="form-group">
                         <label>Смещение таймингов (секунды):</label>
