@@ -2,8 +2,8 @@
 const useAxios = typeof axios !== 'undefined';
 
 // API ключи для KinopoiskDev и Anilibria
-let kinopoiskApiKey = 'YOUR_KINOPOISK_API_KEY';
-let anilibriaApiKey = 'YOUR_ANILIBRIA_API_KEY';
+let kinopoiskApiKey = 'C0JDGQR-QN7MQ1Z-P5YDSXB-WWZ0DPT';
+let anilibriaApiKey = 'eyJpdiI6IitHZWZmcDhXcEsvREVpbzliYUtkeWc9PSIsInZhbHVlIjoiYzBScjJXcUZZcGhPRFpPVkVzTEdHL3pZZDhZTVB6b1ZacGcxVEJQT3BrQjBRZzJOY1Nwc2RiTDdNMm4yb2dWeSIsIm1hYyI6ImY4YWQ2N2UzMTE2ZmM2NGY0ZjljNTEwMmE2MGQzODA0Y2M2MTQxODA2ZGUxYmNhNjNlZGNjZmZkNDY3YzdkODciLCJ0YWciOiIifQ==';
 
 // Функция для запроса метаданных из KinopoiskDev
 async function getAnimeId(title, year) {
