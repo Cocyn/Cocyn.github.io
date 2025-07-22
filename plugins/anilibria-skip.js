@@ -51,8 +51,8 @@
          * Инициализация плагина
          */
         init() {
-            // Регистрация плагина в Lampa
-            this.registerPlugin();
+            // Настройка интеграции с Lampa
+            this.setupLampaIntegration();
             
             // Добавление настроек в интерфейс Lampa
             this.addSettingsInterface();
@@ -60,24 +60,19 @@
             // Подключение к событиям видеоплеера
             this.setupVideoEventListeners();
             
+            // Добавление стилей
+            this.addStyles();
+            
             this.log('Плагин успешно инициализирован');
         }
 
         /**
-         * Регистрация плагина в системе плагинов Lampa
+         * Настройка интеграции с Lampa
          */
-        registerPlugin() {
-            if (typeof Lampa !== 'undefined' && Lampa.Plugins) {
-                Lampa.Plugins.register(PLUGIN_NAME, {
-                    name: 'Пропуск интро в аниме',
-                    version: PLUGIN_VERSION,
-                    description: 'Автоматически пропускает интро в аниме, используя API Anilibria и KinopoiskDev',
-                    author: 'Разработчик плагина пропуска интро',
-                    init: () => {
-                        this.log('Плагин зарегистрирован в Lampa');
-                    }
-                });
-            }
+        setupLampaIntegration() {
+            // Современная Lampa автоматически загружает плагины без явной регистрации
+            // Плагин интегрируется напрямую через события и API
+            this.log('Плагин интегрирован с Lampa');
         }
 
         /**
