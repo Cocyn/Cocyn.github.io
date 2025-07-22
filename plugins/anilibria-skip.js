@@ -1,28 +1,28 @@
 /**
- * Lampa Anime Intro Skip Plugin
- * Automatically skips anime intros using Anilibria and KinopoiskDev APIs
+ * Плагин пропуска интро для Lampa
+ * Автоматически пропускает интро в аниме, используя API Anilibria и KinopoiskDev
  * 
- * This plugin integrates with Lampa media player to:
- * - Detect anime content from current video metadata
- * - Fetch intro timing data from external APIs
- * - Automatically skip intros or allow manual marking
- * - Provide comprehensive settings management
+ * Возможности плагина:
+ * - Обнаружение аниме контента из метаданных текущего видео
+ * - Получение таймингов интро через внешние API
+ * - Автоматический пропуск интро или ручная отметка
+ * - Полное управление настройками
  */
 
 (function() {
     'use strict';
 
-    // Plugin configuration
+    // Конфигурация плагина
     const PLUGIN_NAME = 'intro_skip';
     const PLUGIN_VERSION = '1.0.0';
     
-    // API endpoints
+    // API эндпоинты
     const APIS = {
         KINOPOISK: 'https://api.kinopoisk.dev/v1.4',
         ANILIBRIA: 'https://anilibria.top/api/v1'
     };
 
-    // Default settings
+    // Настройки по умолчанию
     const DEFAULT_SETTINGS = {
         enabled: true,
         kinopoisk_api_key: '',
@@ -34,7 +34,7 @@
     };
 
     /**
-     * Main plugin class
+     * Основной класс плагина
      */
     class IntroSkipPlugin {
         constructor() {
@@ -48,33 +48,33 @@
         }
 
         /**
-         * Initialize the plugin
+         * Инициализация плагина
          */
         init() {
-            // Register plugin with Lampa
+            // Регистрация плагина в Lampa
             this.registerPlugin();
             
-            // Add settings to Lampa interface
+            // Добавление настроек в интерфейс Lampa
             this.addSettingsInterface();
             
-            // Hook into video events
+            // Подключение к событиям видеоплеера
             this.setupVideoEventListeners();
             
-            this.log('Plugin initialized successfully');
+            this.log('Плагин успешно инициализирован');
         }
 
         /**
-         * Register plugin with Lampa plugin system
+         * Регистрация плагина в системе плагинов Lampa
          */
         registerPlugin() {
             if (typeof Lampa !== 'undefined' && Lampa.Plugins) {
                 Lampa.Plugins.register(PLUGIN_NAME, {
-                    name: 'Anime Intro Skip',
+                    name: 'Пропуск интро в аниме',
                     version: PLUGIN_VERSION,
-                    description: 'Automatically skips anime intros using Anilibria and KinopoiskDev APIs',
-                    author: 'IntroSkip Plugin Developer',
+                    description: 'Автоматически пропускает интро в аниме, используя API Anilibria и KinopoiskDev',
+                    author: 'Разработчик плагина пропуска интро',
                     init: () => {
-                        this.log('Plugin registered with Lampa');
+                        this.log('Плагин зарегистрирован в Lampa');
                     }
                 });
             }
@@ -109,18 +109,18 @@
                 const settingsSection = document.createElement('div');
                 settingsSection.className = 'intro-skip-settings settings-param';
                 settingsSection.innerHTML = `
-                    <div class="settings-param__name">Anime Intro Skip</div>
+                    <div class="settings-param__name">Пропуск интро в аниме</div>
                     <div class="settings-param__value">
-                        <div class="settings-param__descr">Configure intro skip settings</div>
+                        <div class="settings-param__descr">Настройки автоматического пропуска интро</div>
                         <div class="intro-skip-controls">
                             <button class="intro-skip-btn" data-action="toggle-plugin">
-                                Plugin: ${this.settings.enabled ? 'Enabled' : 'Disabled'}
+                                Плагин: ${this.settings.enabled ? 'Включен' : 'Выключен'}
                             </button>
                             <button class="intro-skip-btn" data-action="open-advanced">
-                                Advanced Settings
+                                Дополнительные настройки
                             </button>
                             <button class="intro-skip-btn" data-action="manage-timings">
-                                Manage Custom Timings
+                                Управление таймингами
                             </button>
                         </div>
                     </div>
@@ -167,58 +167,59 @@
             
             const button = document.querySelector('[data-action="toggle-plugin"]');
             if (button) {
-                button.textContent = `Plugin: ${this.settings.enabled ? 'Enabled' : 'Disabled'}`;
+                button.textContent = `Плагин: ${this.settings.enabled ? 'Включен' : 'Выключен'}`;
             }
             
             this.showNotification(
-                `Plugin ${this.settings.enabled ? 'enabled' : 'disabled'}`,
+                `Плагин ${this.settings.enabled ? 'включен' : 'выключен'}`,
                 'info'
             );
         }
 
         /**
-         * Open advanced settings modal
+         * Открыть модальное окно с расширенными настройками
          */
         openAdvancedSettings() {
-            const modal = this.createModal('Advanced Settings', `
+            const modal = this.createModal('Дополнительные настройки', `
                 <div class="intro-skip-form">
                     <div class="form-group">
-                        <label>KinopoiskDev API Key:</label>
+                        <label>API ключ KinopoiskDev:</label>
                         <input type="text" id="kinopoisk-key" value="${this.settings.kinopoisk_api_key}" 
-                               placeholder="Enter API key from kinopoisk.dev">
+                               placeholder="C0JDGQR-QN7MQ1Z-P5YDSXB-WWZ0DPT">
+                        <small>Обязательно! Получите ключ на <a href="https://kinopoisk.dev/" target="_blank">kinopoisk.dev</a></small>
                     </div>
                     <div class="form-group">
-                        <label>Anilibria API Key (optional):</label>
+                        <label>API ключ Anilibria (опционально):</label>
                         <input type="text" id="anilibria-key" value="${this.settings.anilibria_api_key}" 
-                               placeholder="Enter Anilibria API key if required">
+                               placeholder="eyJpdiI6IjdDb1hSMmtGTGx0MFJjc0dhMDl6YWc9PSIsInZhbHVlIjoidHptdS80aG10U0k5WWpwTWpkYUZGVnpXVFRVOVczcWtydm5mSy9WVTFBVVltUW5XV0ZwT05TbVBUQjdnOWdvUiIsIm1hYyI6IjA5NTc3YjBiNzlmNmMyZTA5N2JkZWNmZWUyMmY0MzJjMzZjMDQ2ZDQ1YjFmN2E5MjZmYzdhZGVkNjIwNWI5YjYiLCJ0YWciOiIifQ==">
                     </div>
                     <div class="form-group">
-                        <label>Timing Offset (seconds):</label>
+                        <label>Смещение таймингов (секунды):</label>
                         <input type="number" id="timing-offset" value="${this.settings.timing_offset}" 
                                min="-30" max="30" step="1">
-                        <small>Adjust timing by ±30 seconds for different sources</small>
+                        <small>Корректировка таймингов на ±30 секунд для разных источников</small>
                     </div>
                     <div class="form-group">
-                        <label>Default Skip Time (seconds):</label>
+                        <label>Время пропуска по умолчанию (секунды):</label>
                         <input type="number" id="default-skip" value="${this.settings.default_skip_time}" 
                                min="10" max="60" step="5">
-                        <small>Used when no timing data is available</small>
+                        <small>Используется при отсутствии данных о таймингах</small>
                     </div>
                     <div class="form-group">
                         <label>
                             <input type="checkbox" id="auto-skip" ${this.settings.auto_skip ? 'checked' : ''}>
-                            Auto-skip intros
+                            Автоматически пропускать интро
                         </label>
                     </div>
                     <div class="form-group">
                         <label>
                             <input type="checkbox" id="show-notifications" ${this.settings.show_notifications ? 'checked' : ''}>
-                            Show notifications
+                            Показывать уведомления
                         </label>
                     </div>
                     <div class="form-buttons">
-                        <button class="btn-save">Save Settings</button>
-                        <button class="btn-cancel">Cancel</button>
+                        <button class="btn-save">Сохранить настройки</button>
+                        <button class="btn-cancel">Отмена</button>
                     </div>
                 </div>
             `);
@@ -247,36 +248,36 @@
                 this.settings.show_notifications = document.getElementById('show-notifications').checked;
 
                 this.saveSettings();
-                this.showNotification('Settings saved successfully', 'success');
+                this.showNotification('Настройки успешно сохранены', 'success');
             } catch (error) {
                 this.handleError('Failed to save settings', error);
             }
         }
 
         /**
-         * Open timings manager modal
+         * Открыть менеджер пользовательских таймингов
          */
         openTimingsManager() {
             const timingsList = this.generateTimingsList();
-            const modal = this.createModal('Manage Custom Timings', `
+            const modal = this.createModal('Управление пользовательскими таймингами', `
                 <div class="timings-manager">
                     <div class="timings-list">
                         ${timingsList}
                     </div>
                     <div class="timings-actions">
-                        <button class="btn-clear-all">Clear All Timings</button>
-                        <button class="btn-close">Close</button>
+                        <button class="btn-clear-all">Очистить все тайминги</button>
+                        <button class="btn-close">Закрыть</button>
                     </div>
                 </div>
             `);
 
-            // Add event listeners
+            // Добавление обработчиков событий
             modal.querySelector('.btn-clear-all').addEventListener('click', () => {
-                if (confirm('Are you sure you want to clear all custom timings?')) {
+                if (confirm('Вы уверены, что хотите очистить все пользовательские тайминги?')) {
                     this.customTimings = {};
                     this.saveCustomTimings();
                     this.closeModal(modal);
-                    this.showNotification('All custom timings cleared', 'info');
+                    this.showNotification('Все пользовательские тайминги очищены', 'info');
                 }
             });
 
@@ -299,7 +300,7 @@
          */
         generateTimingsList() {
             if (Object.keys(this.customTimings).length === 0) {
-                return '<div class="no-timings">No custom timings saved</div>';
+                return '<div class="no-timings">Нет сохраненных пользовательских таймингов</div>';
             }
 
             return Object.entries(this.customTimings).map(([key, timing]) => `
@@ -307,11 +308,11 @@
                     <div class="timing-info">
                         <strong>${timing.title}</strong>
                         <div class="timing-details">
-                            Season ${timing.season}, Episode ${timing.episode}
-                            <br>Skip to: ${timing.end_time}s
+                            Сезон ${timing.season}, Серия ${timing.episode}
+                            <br>Пропуск до: ${timing.end_time}с
                         </div>
                     </div>
-                    <button class="timing-delete" data-key="${key}">Delete</button>
+                    <button class="timing-delete" data-key="${key}">Удалить</button>
                 </div>
             `).join('');
         }
@@ -357,7 +358,7 @@
                     return;
                 }
 
-                this.log('Anime detected, processing intro skip', this.currentVideoData);
+                this.log('Обнаружено аниме, обрабатываю пропуск интро', this.currentVideoData);
                 
                 // Show manual skip button immediately
                 this.showSkipButton();
@@ -660,43 +661,57 @@
         }
 
         /**
-         * Get intro timing from Anilibria API
+         * Получить тайминги интро через API Anilibria
          */
         async getTimingFromAnilibria(animeId) {
             try {
-                // Note: This is a hypothetical API call since Anilibria's exact timing API structure
-                // may vary. Adjust according to actual API documentation.
-                const url = `${APIS.ANILIBRIA}/anime/${animeId}/timing/${this.currentVideoData.season}/${this.currentVideoData.episode}`;
+                // Попробуем найти релиз по названию аниме в новом API Anilibria
+                const searchUrl = `${APIS.ANILIBRIA}/anime/catalog`;
+                const searchParams = new URLSearchParams({
+                    search: this.currentVideoData.title,
+                    limit: 10
+                });
+
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
                 
-                const headers = {};
                 if (this.settings.anilibria_api_key) {
                     headers['Authorization'] = `Bearer ${this.settings.anilibria_api_key}`;
                 }
 
-                const response = await fetch(url, { headers });
+                const response = await fetch(`${searchUrl}?${searchParams}`, { headers });
 
                 if (!response.ok) {
                     if (response.status === 404) {
-                        this.log('No timing data found for this episode');
+                        this.log('Данные о таймингах для этого эпизода не найдены');
                         return null;
                     }
-                    throw new Error(`Anilibria API error: ${response.status}`);
+                    throw new Error(`Ошибка API Anilibria: ${response.status}`);
                 }
 
                 const data = await response.json();
                 
-                if (data && typeof data.intro_start === 'number' && typeof data.intro_end === 'number') {
-                    return {
-                        start: data.intro_start,
-                        end: data.intro_end,
-                        source: 'anilibria'
-                    };
+                // Новый API Anilibria может не содержать таймингов интро напрямую
+                // В таком случае, мы можем попробовать найти релиз и использовать стандартное время
+                if (data && data.list && data.list.length > 0) {
+                    const release = data.list[0]; // Берем первый подходящий релиз
+                    
+                    // Проверяем, есть ли эпизоды
+                    if (release.episodes && release.episodes.length >= this.currentVideoData.episode) {
+                        // Используем стандартные тайминги для аниме (обычно интро длится 90 секунд)
+                        return {
+                            start: 0,
+                            end: 90, // Стандартная длина интро для аниме
+                            source: 'anilibria_estimated'
+                        };
+                    }
                 }
 
                 return null;
 
             } catch (error) {
-                this.log('Anilibria API error', error);
+                this.log('Ошибка API Anilibria', error);
                 return null;
             }
         }
@@ -729,7 +744,7 @@
                 this.skipButton.className = 'intro-skip-button';
                 this.skipButton.innerHTML = `
                     <button class="skip-btn">
-                        <span class="skip-text">Skip Intro</span>
+                        <span class="skip-text">Пропустить интро</span>
                         <span class="skip-time"></span>
                     </button>
                 `;
@@ -772,9 +787,9 @@
                 const videoContainer = this.getVideoContainer();
                 if (videoContainer) {
                     videoContainer.appendChild(this.skipButton);
-                    this.log('Skip button added to video player');
+                    this.log('Кнопка пропуска добавлена в видеоплеер');
                 } else {
-                    this.log('Could not find video container for skip button');
+                    this.log('Не удалось найти контейнер видео для кнопки пропуска');
                 }
 
             } catch (error) {
@@ -859,14 +874,14 @@
             try {
                 const currentTime = this.getCurrentVideoTime();
                 
-                const modal = this.createModal('Mark Intro End', `
+                const modal = this.createModal('Отметить конец интро', `
                     <div class="intro-end-prompt">
-                        <p>No timing data found for this episode.</p>
-                        <p>Current time: <strong>${Math.round(currentTime)}s</strong></p>
+                        <p>Данные о таймингах для этого эпизода не найдены.</p>
+                        <p>Текущее время: <strong>${Math.round(currentTime)}с</strong></p>
                         <div class="prompt-actions">
-                            <button class="btn-mark-end">Mark Current Time as Intro End</button>
-                            <button class="btn-skip-default">Skip ${this.settings.default_skip_time}s</button>
-                            <button class="btn-cancel">Cancel</button>
+                            <button class="btn-mark-end">Отметить текущее время как конец интро</button>
+                            <button class="btn-skip-default">Пропустить ${this.settings.default_skip_time}с</button>
+                            <button class="btn-cancel">Отмена</button>
                         </div>
                     </div>
                 `);
@@ -916,8 +931,8 @@
                 // Skip to marked time
                 this.skipToTime(endTime);
 
-                this.showNotification('Intro end marked and saved', 'success');
-                this.log('Manual intro timing saved', timing);
+                this.showNotification('Конец интро отмечен и сохранен', 'success');
+                this.log('Ручной тайминг интро сохранен', timing);
 
             } catch (error) {
                 this.handleError('Failed to mark intro end', error);
@@ -929,18 +944,18 @@
          */
         skipToTime(time) {
             try {
-                // Try Lampa's video API
+                // Попробуем использовать API видеоплеера Lampa
                 if (typeof Lampa !== 'undefined' && Lampa.VideoPlayer) {
                     Lampa.VideoPlayer.seek(time);
-                    this.showNotification(`Skipped to ${Math.round(time)}s`, 'info');
+                    this.showNotification(`Перемотано на ${Math.round(time)}с`, 'info');
                     return;
                 }
 
-                // Fallback: try direct video element manipulation
+                // Резервный способ: прямое управление элементом video
                 const videoElement = document.querySelector('video');
                 if (videoElement) {
                     videoElement.currentTime = time;
-                    this.showNotification(`Skipped to ${Math.round(time)}s`, 'info');
+                    this.showNotification(`Перемотано на ${Math.round(time)}с`, 'info');
                     return;
                 }
 
@@ -1260,7 +1275,7 @@
         saveSettings() {
             try {
                 localStorage.setItem(`${PLUGIN_NAME}_settings`, JSON.stringify(this.settings));
-                this.log('Settings saved');
+                this.log('Настройки сохранены');
             } catch (error) {
                 this.handleError('Failed to save settings', error);
             }
@@ -1285,7 +1300,7 @@
         saveCustomTimings() {
             try {
                 localStorage.setItem(`${PLUGIN_NAME}_timings`, JSON.stringify(this.customTimings));
-                this.log('Custom timings saved');
+                this.log('Пользовательские тайминги сохранены');
             } catch (error) {
                 this.handleError('Failed to save custom timings', error);
             }
@@ -1301,7 +1316,7 @@
                 // Try to use Lampa's notification system
                 if (typeof Lampa !== 'undefined' && Lampa.Noty) {
                     Lampa.Noty({
-                        title: 'Intro Skip',
+                        title: 'Пропуск интро',
                         descr: message,
                         type: type
                     });
@@ -1371,8 +1386,8 @@
          * Handle errors with logging and user notification
          */
         handleError(message, error) {
-            this.log(`ERROR: ${message}`, error);
-            this.showNotification(`Error: ${message}`, 'error');
+            this.log(`ОШИБКА: ${message}`, error);
+            this.showNotification(`Ошибка: ${message}`, 'error');
         }
 
         /**
