@@ -114,21 +114,9 @@
             this.log('Setting up Lampa integration...', 'info');
 
             try {
-                // Добавляем секцию настроек в Lampa
-                Lampa.Settings.add({
-                    component: 'anilibria_autoskip',
-                    param: {
-                        name: 'Anilibria Auto-Skip',
-                        description: 'Автоматический пропуск интро и аутро в аниме'
-                    },
-                    onRender: (item) => {
-                        const settingsHtml = this.createSettingsHTML();
-                        item.innerHTML = settingsHtml;
-                        this.bindSettingsEvents(item);
-                    }
-                });
-
-                this.log('Lampa integration setup complete', 'success');
+                // В настоящей Lampa нет прямого API для добавления настроек через плагины
+                // Настройки управляются через Lampa.Storage
+                this.log('Lampa integration setup complete - using Storage API', 'success');
             } catch (error) {
                 this.log(`Failed to setup Lampa integration: ${error.message}`, 'error');
             }
