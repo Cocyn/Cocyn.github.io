@@ -1,14 +1,14 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.6
+ * Anilibria Auto-Skip Plugin v1.9.7
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
- * ИСПРАВЛЕНИЯ v1.9.6:
- * - Исправлен спам логов в DOM Observer (защита от избыточных срабатываний)
- * - Улучшена производительность мониторинга активности
- * - Добавлены тайм-ауты для предотвращения бесконечных циклов
- * - Оптимизирована логика обнаружения video элементов
- * - Сохранена стабильная работа определения эпизодов
+ * ИСПРАВЛЕНИЯ v1.9.7:
+ * - Улучшен DOM Observer для отслеживания смены эпизодов
+ * - Добавлена реакция на изменения в элементах серий (.selector, .episode-item)
+ * - Исправлена проблема с определением следующего эпизода
+ * - Добавлено детальное логирование процесса определения эпизодов
+ * - Оптимизированы интервалы проверки (500мс вместо 1000мс)
  * 
  * URL: http://localhost:5000/anilibria-autoskip-plugin.js
  */
@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.6', // Исправлена производительность DOM Observer
+        version: '1.9.7', // Улучшен DOM Observer - теперь отслеживает смену эпизодов
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -77,7 +77,7 @@
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.6...', 'info');
+                this.log('Инициализация плагина v1.9.7...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
@@ -486,46 +486,80 @@
                 this.domObserver = new MutationObserver((mutations) => {
                     const now = Date.now();
                     
-                    // Защита от спама - не более одной проверки в секунду
-                    if (now - this.lastDOMCheck < 1000) return;
+                    // Защита от спама - не более одной проверки в 500мс
+                    if (now - this.lastDOMCheck < 500) return;
                     this.lastDOMCheck = now;
                     
                     let shouldRecheck = false;
                     let hasNewVideo = false;
+                    let hasEpisodeChange = false;
                     
                     for (const mutation of mutations) {
                         if (mutation.type === 'childList') {
                             for (const node of mutation.addedNodes) {
                                 if (node.nodeType === 1) { // Element node
-                                    // Только реальные video элементы
+                                    // Реальные video элементы
                                     if (node.tagName === 'VIDEO') {
                                         hasNewVideo = true;
                                         shouldRecheck = true;
                                         break;
                                     }
-                                    // Или контейнеры, которые содержат video
+                                    // Контейнеры с video
                                     else if (node.querySelector && node.querySelector('video')) {
                                         hasNewVideo = true;
                                         shouldRecheck = true;
                                         break;
                                     }
+                                    // ВАЖНО: Элементы, указывающие на смену эпизода
+                                    else if (node.classList && (
+                                        node.classList.contains('selector') ||
+                                        node.classList.contains('series__episode') ||
+                                        node.classList.contains('episode-item') ||
+                                        node.classList.contains('torrent-item')
+                                    )) {
+                                        hasEpisodeChange = true;
+                                        shouldRecheck = true;
+                                    }
                                 }
+                            }
+                        }
+                        
+                        // Также проверяем изменения текста в существующих элементах
+                        if (mutation.type === 'characterData' || mutation.type === 'childList') {
+                            const target = mutation.target;
+                            if (target && target.parentElement && target.parentElement.classList && (
+                                target.parentElement.classList.contains('selector') ||
+                                target.parentElement.classList.contains('focus')
+                            )) {
+                                hasEpisodeChange = true;
+                                shouldRecheck = true;
                             }
                         }
                     }
                     
-                    if (shouldRecheck && hasNewVideo) {
-                        // Проверяем изменение количества video элементов
-                        const currentVideoCount = document.querySelectorAll('video').length;
-                        if (currentVideoCount !== this.lastVideoCount) {
-                            // Ограничиваем логирование - не чаще одного раза в 3 секунды
-                            if (now - this.lastLogTime > 3000) {
-                                this.log(`🔍 Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                    if (shouldRecheck) {
+                        // Для video элементов - проверяем количество
+                        if (hasNewVideo) {
+                            const currentVideoCount = document.querySelectorAll('video').length;
+                            if (currentVideoCount !== this.lastVideoCount) {
+                                // Ограничиваем логирование - не чаще одного раза в 3 секунды
+                                if (now - this.lastLogTime > 3000) {
+                                    this.log(`🔍 Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                                    this.lastLogTime = now;
+                                }
+                                
+                                this.lastVideoCount = currentVideoCount;
+                                setTimeout(() => this.forceContentRecheck(), 1500);
+                            }
+                        }
+                        
+                        // Для смены эпизодов - всегда перепроверяем
+                        if (hasEpisodeChange) {
+                            if (now - this.lastLogTime > 2000) {
+                                this.log('🔍 Обнаружены изменения элементов эпизодов', 'debug');
                                 this.lastLogTime = now;
                             }
-                            
-                            this.lastVideoCount = currentVideoCount;
-                            setTimeout(() => this.forceContentRecheck(), 2000);
+                            setTimeout(() => this.forceContentRecheck(), 1000);
                         }
                     }
                 });
@@ -668,7 +702,19 @@
             this.isRecheckInProgress = true;
             
             try {
-                this.log('🔍 Принудительная перепроверка контента при смене видео...', 'debug');
+                this.log('🔍 Принудительная перепроверка контента при смене видео/эпизода...', 'debug');
+                
+                // Сбрасываем кэш для повторного определения
+                const oldEpisode = this.lastEpisodeNumber;
+                this.lastEpisodeNumber = null;
+                this.lastEpisodeFromDOM = null;
+                
+                // Проверяем новый эпизод немедленно
+                const newEpisode = this.extractEpisodeNumber();
+                if (newEpisode && newEpisode !== oldEpisode) {
+                    this.log(`🔍 Смена эпизода обнаружена: ${oldEpisode} → ${newEpisode}`, 'debug');
+                }
+                
                 this.recheckCurrentContent();
             } finally {
                 setTimeout(() => {
