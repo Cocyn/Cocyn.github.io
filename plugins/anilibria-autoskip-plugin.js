@@ -1,9 +1,9 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.5
+ * Anilibria Auto-Skip Plugin v1.9.2
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
- * ИСПРАВЛЕНИЯ v1.9.5:
+ * ИСПРАВЛЕНИЯ v1.9.2:
  * - Исправлено определение номера эпизода из различных источников
  * - Улучшена логика сравнения контента
  * - Добавлены дополнительные методы извлечения номера серии
@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.5', // Кардинально улучшено определение эпизодов для lampa.mx
+        version: '1.9.3', // Кардинально улучшено определение эпизодов для lampa.mx
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -76,14 +76,14 @@
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.5...', 'info');
+                this.log('Инициализация плагина v1.9.3...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.5 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.4 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -310,7 +310,7 @@
         }
 
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.5 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.4 ===', 'info');
             try {
                 this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
@@ -545,7 +545,18 @@
                     return this.currentEpisode;
                 }
 
+                this.log('⚠️ Не удалось определить номер эпизода всеми методами', 'warning');
+                
+                // FALLBACK: Если не можем определить эпизод, но видео есть - предполагаем 1-й эпизод
+                const videoElements = document.querySelectorAll('video');
+                if (videoElements.length > 0 && this.currentTitle) {
+                    this.log('🎯 FALLBACK: Предполагаем 1-й эпизод, так как видео активно', 'info');
+                    this.showSkipNotification('info', '🔍 Установлен эпизод 1 (автоопределение)');
+                    return 1;
+                }
+                
                 return null;
+
             } catch (error) {
                 this.log(`❌ Ошибка извлечения номера эпизода: ${error.message}`, 'error');
                 return null;
@@ -866,12 +877,6 @@
                         // Проверяем текстовое содержимое с более точными регулярными выражениями
                         const text = (element.textContent || element.innerText || '').trim();
                         if (text) {
-                            // Исключаем временные метки (00:02:03, 01:23:45, etc.)
-                            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
-                                this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
-                                continue;
-                            }
-                            
                             const patterns = [
                                 /^(\d+)$/, // Только цифра
                                 /^(\d+)\s*серия/i, // "1 серия"
@@ -959,12 +964,6 @@
                 const text = (child.textContent || child.innerText || '').trim();
                 if (text) {
                     this.log(`🔍 Анализируем текст: "${text}"`, 'debug');
-                    
-                    // Исключаем временные метки (00:02:03, 01:23:45, etc.)
-                    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
-                        this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
-                        continue;
-                    }
                     
                     const patterns = [
                         /^(\d+)$/, // Только цифра
