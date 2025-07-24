@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.2', // Исправлено определение эпизодов и улучшена совместимость
+        version: '1.9.3', // Кардинально улучшено определение эпизодов для lampa.mx
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -76,14 +76,14 @@
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.2...', 'info');
+                this.log('Инициализация плагина v1.9.3...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.2 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.3 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -180,21 +180,33 @@
 
                 // События сериалов - КРИТИЧЕСКИ ВАЖНО ДЛЯ ОПРЕДЕЛЕНИЯ ЭПИЗОДОВ
                 Lampa.Listener.follow('series', (e) => {
-                    this.log(`Событие сериала: ${e.type}`, 'debug');
+                    this.log(`🎭 Событие сериала: ${e.type}`, 'debug');
                     if (e.type === 'episode' || e.type === 'season') {
-                        this.log('Обнаружена смена эпизода/сезона через событие series', 'info');
+                        this.log('🔄 Обнаружена смена эпизода/сезона через событие series', 'info');
                         
-                        // Извлекаем информацию об эпизоде из события
-                        if (e.data) {
-                            const episodeNum = this.extractEpisodeFromEvent(e.data);
-                            if (episodeNum !== null) {
-                                this.log(`Номер эпизода из события: ${episodeNum}`, 'debug');
-                                this.currentEpisode = episodeNum;
-                            }
-                        }
+                        // Агрессивное извлечение информации об эпизоде
+                        this.aggressiveEpisodeExtraction(e);
                         
                         const delay = this.webOSMode ? 5000 : 1500;
                         setTimeout(() => this.forceContentRecheck(), delay);
+                    }
+                });
+
+                // Дополнительные события для lampa.mx
+                Lampa.Listener.follow('torrent', (e) => {
+                    this.log(`🌊 Событие торрента: ${e.type}`, 'debug');
+                    if (e.type === 'select' || e.type === 'change') {
+                        this.log('🔄 Смена торрента - принудительная перепроверка', 'info');
+                        setTimeout(() => this.forceContentRecheck(), 2000);
+                    }
+                });
+
+                // События онлайн плеера
+                Lampa.Listener.follow('online', (e) => {
+                    this.log(`📺 Событие онлайн плеера: ${e.type}`, 'debug');
+                    if (e.type === 'select' || e.type === 'change' || e.type === 'episode') {
+                        this.log('🔄 Смена онлайн эпизода - принудительная перепроверка', 'info');
+                        setTimeout(() => this.forceContentRecheck(), 1500);
                     }
                 });
 
@@ -251,8 +263,54 @@
             return null;
         }
 
+        /**
+         * Агрессивное извлечение информации об эпизоде из всех доступных источников
+         */
+        aggressiveEpisodeExtraction(event) {
+            this.log('🔍 Агрессивный поиск номера эпизода...', 'debug');
+
+            // 1. Из данных события
+            if (event.data || event.object || event.item) {
+                const data = event.data || event.object || event.item;
+                const episodeNum = this.extractEpisodeFromEvent(data);
+                if (episodeNum !== null) {
+                    this.log(`✅ Эпизод из события: ${episodeNum}`, 'debug');
+                    this.currentEpisode = episodeNum;
+                    return;
+                }
+            }
+
+            // 2. Немедленный поиск в DOM
+            setTimeout(() => {
+                const domEpisode = this.extractEpisodeFromDOM();
+                if (domEpisode !== null) {
+                    this.log(`✅ Эпизод из DOM (агрессивный поиск): ${domEpisode}`, 'debug');
+                    this.currentEpisode = domEpisode;
+                    return;
+                }
+
+                // 3. Поиск в активности Lampa
+                const activityEpisode = this.extractFromActivity();
+                if (activityEpisode !== null) {
+                    this.log(`✅ Эпизод из активности (агрессивный поиск): ${activityEpisode}`, 'debug');
+                    this.currentEpisode = activityEpisode;
+                    return;
+                }
+
+                // 4. Поиск в глобальных переменных
+                const globalEpisode = this.extractFromLampaGlobals();
+                if (globalEpisode !== null) {
+                    this.log(`✅ Эпизод из глобальных (агрессивный поиск): ${globalEpisode}`, 'debug');
+                    this.currentEpisode = globalEpisode;
+                    return;
+                }
+
+                this.log('⚠️ Агрессивный поиск эпизода не дал результатов', 'warning');
+            }, 500);
+        }
+
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.2 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.3 ===', 'info');
             try {
                 this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
@@ -442,88 +500,270 @@
         }
 
         /**
-         * УЛУЧШЕННАЯ ФУНКЦИЯ ИЗВЛЕЧЕНИЯ НОМЕРА ЭПИЗОДА
+         * УЛУЧШЕННАЯ ФУНКЦИЯ ИЗВЛЕЧЕНИЯ НОМЕРА ЭПИЗОДА v2.0
+         * Специально адаптирована для lampa.mx и других версий Lampa
          */
         extractEpisodeNumber() {
             try {
-                // Метод 1: Из текущего плеера
-                if (this.currentPlayer && this.currentPlayer.episode) {
-                    const episodeNum = parseInt(this.currentPlayer.episode);
-                    if (!isNaN(episodeNum) && episodeNum > 0) {
-                        this.log(`Номер эпизода из плеера: ${episodeNum}`, 'debug');
-                        return episodeNum;
+                this.log('🔍 Начинаем поиск номера эпизода...', 'debug');
+
+                // Метод 1: Из глобальных переменных Lampa
+                const globalEpisode = this.extractFromLampaGlobals();
+                if (globalEpisode !== null) return globalEpisode;
+
+                // Метод 2: Из активности Lampa (расширенный)
+                const activityEpisode = this.extractFromActivity();
+                if (activityEpisode !== null) return activityEpisode;
+
+                // Метод 3: Из Player API
+                const playerEpisode = this.extractFromPlayer();
+                if (playerEpisode !== null) return playerEpisode;
+
+                // Метод 4: Из Storage Lampa
+                const storageEpisode = this.extractFromStorage();
+                if (storageEpisode !== null) return storageEpisode;
+
+                // Метод 5: Из DOM элементов (улучшенный)
+                const domEpisode = this.extractEpisodeFromDOM();
+                if (domEpisode !== null) return domEpisode;
+
+                // Метод 6: Из URL страницы
+                const urlEpisode = this.extractEpisodeFromURL();
+                if (urlEpisode !== null) return urlEpisode;
+
+                // Метод 7: Из заголовка страницы
+                const titleEpisode = this.extractEpisodeFromTitle();
+                if (titleEpisode !== null) return titleEpisode;
+
+                // Метод 8: Из видео элементов
+                const videoEpisode = this.extractFromVideoElements();
+                if (videoEpisode !== null) return videoEpisode;
+
+                // Метод 9: Используем сохраненное значение
+                if (this.currentEpisode !== null) {
+                    this.log(`🔄 Используем сохраненный номер эпизода: ${this.currentEpisode}`, 'debug');
+                    return this.currentEpisode;
+                }
+
+                this.log('⚠️ Не удалось определить номер эпизода всеми методами', 'warning');
+                return null;
+
+            } catch (error) {
+                this.log(`❌ Ошибка извлечения номера эпизода: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из глобальных переменных Lampa
+         */
+        extractFromLampaGlobals() {
+            try {
+                // Проверяем глобальные объекты Lampa
+                const globalPaths = [
+                    'Lampa.Select.show.season.episodes',
+                    'Lampa.Select.show.episode',
+                    'Lampa.Controller.enabled().movie.episode',
+                    'Lampa.Controller.enabled().activity.movie.episode',
+                    'window.lampa_settings.player_episode',
+                    'window.lampa_episode',
+                    'window.episode_current'
+                ];
+
+                for (const path of globalPaths) {
+                    try {
+                        const value = this.getNestedProperty(window, path);
+                        if (value !== undefined) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из глобальных (${path}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки доступа к свойствам
                     }
                 }
 
-                // Метод 2: Из активности Lampa
-                if (typeof Lampa?.Activity?.active === 'function') {
-                    const activity = Lampa.Activity.active();
-                    if (activity) {
-                        // Проверяем различные поля активности
-                        const episodeFields = [
-                            'episode', 'episode_number', 'episodeNumber', 'ep',
-                            'current_episode', 'selected_episode'
-                        ];
-                        
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromLampaGlobals: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из активности Lampa (расширенный)
+         */
+        extractFromActivity() {
+            try {
+                if (typeof Lampa?.Activity?.active !== 'function') return null;
+
+                const activity = Lampa.Activity.active();
+                if (!activity) return null;
+
+                this.log('🔍 Анализируем активность Lampa...', 'debug');
+
+                // Расширенный список полей для поиска эпизода
+                const episodeFields = [
+                    'episode', 'episode_number', 'episodeNumber', 'ep', 'number',
+                    'current_episode', 'selected_episode', 'active_episode',
+                    'episode_id', 'episode_index', 'episode_current'
+                ];
+
+                // Проверяем корневые поля активности
+                for (const field of episodeFields) {
+                    const value = activity[field];
+                    if (value !== undefined && value !== null) {
+                        const episodeNum = parseInt(value);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из активности (${field}): ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
+                }
+
+                // Проверяем вложенные объекты
+                const nestedObjects = ['movie', 'data', 'object', 'card', 'item'];
+                for (const objName of nestedObjects) {
+                    const obj = activity[objName];
+                    if (obj && typeof obj === 'object') {
                         for (const field of episodeFields) {
-                            if (activity[field] !== undefined) {
-                                const episodeNum = parseInt(activity[field]);
+                            const value = obj[field];
+                            if (value !== undefined && value !== null) {
+                                const episodeNum = parseInt(value);
                                 if (!isNaN(episodeNum) && episodeNum > 0) {
-                                    this.log(`Номер эпизода из активности (${field}): ${episodeNum}`, 'debug');
+                                    this.log(`✅ Номер эпизода из ${objName}.${field}: ${episodeNum}`, 'debug');
                                     return episodeNum;
                                 }
                             }
                         }
+                    }
+                }
 
-                        // Проверяем вложенные объекты
-                        if (activity.movie) {
-                            for (const field of episodeFields) {
-                                if (activity.movie[field] !== undefined) {
-                                    const episodeNum = parseInt(activity.movie[field]);
-                                    if (!isNaN(episodeNum) && episodeNum > 0) {
-                                        this.log(`Номер эпизода из movie (${field}): ${episodeNum}`, 'debug');
-                                        return episodeNum;
-                                    }
-                                }
-                            }
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromActivity: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из Player API
+         */
+        extractFromPlayer() {
+            try {
+                if (!this.currentPlayer) return null;
+
+                const episodeFields = ['episode', 'episode_number', 'ep', 'number'];
+                for (const field of episodeFields) {
+                    const value = this.currentPlayer[field];
+                    if (value !== undefined && value !== null) {
+                        const episodeNum = parseInt(value);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из плеера (${field}): ${episodeNum}`, 'debug');
+                            return episodeNum;
                         }
                     }
                 }
 
-                // Метод 3: Из URL страницы
-                const urlEpisode = this.extractEpisodeFromURL();
-                if (urlEpisode !== null) {
-                    this.log(`Номер эпизода из URL: ${urlEpisode}`, 'debug');
-                    return urlEpisode;
-                }
-
-                // Метод 4: Из DOM элементов
-                const domEpisode = this.extractEpisodeFromDOM();
-                if (domEpisode !== null) {
-                    this.log(`Номер эпизода из DOM: ${domEpisode}`, 'debug');
-                    return domEpisode;
-                }
-
-                // Метод 5: Из заголовка страницы
-                const titleEpisode = this.extractEpisodeFromTitle();
-                if (titleEpisode !== null) {
-                    this.log(`Номер эпизода из заголовка: ${titleEpisode}`, 'debug');
-                    return titleEpisode;
-                }
-
-                // Метод 6: Используем сохраненное значение
-                if (this.currentEpisode !== null) {
-                    this.log(`Используем сохраненный номер эпизода: ${this.currentEpisode}`, 'debug');
-                    return this.currentEpisode;
-                }
-
-                this.log('Не удалось определить номер эпизода', 'warning');
                 return null;
-
             } catch (error) {
-                this.log(`Ошибка извлечения номера эпизода: ${error.message}`, 'error');
+                this.log(`Ошибка в extractFromPlayer: ${error.message}`, 'debug');
                 return null;
             }
+        }
+
+        /**
+         * Извлечение из Storage Lampa
+         */
+        extractFromStorage() {
+            try {
+                if (typeof Lampa?.Storage?.get !== 'function') return null;
+
+                const storageKeys = [
+                    'player_episode',
+                    'current_episode',
+                    'selected_episode',
+                    'episode_number',
+                    'last_episode'
+                ];
+
+                for (const key of storageKeys) {
+                    try {
+                        const value = Lampa.Storage.get(key);
+                        if (value !== undefined && value !== null) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из Storage (${key}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки Storage
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromStorage: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из видео элементов
+         */
+        extractFromVideoElements() {
+            try {
+                const videos = document.querySelectorAll('video');
+                for (const video of videos) {
+                    // Проверяем data-атрибуты видео
+                    const episodeAttrs = ['data-episode', 'data-ep', 'data-episode-number'];
+                    for (const attr of episodeAttrs) {
+                        const value = video.getAttribute(attr);
+                        if (value) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из видео (${attr}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    }
+
+                    // Проверяем родительские элементы видео
+                    let parent = video.parentElement;
+                    let depth = 0;
+                    while (parent && depth < 5) {
+                        for (const attr of episodeAttrs) {
+                            const value = parent.getAttribute(attr);
+                            if (value) {
+                                const episodeNum = parseInt(value);
+                                if (!isNaN(episodeNum) && episodeNum > 0) {
+                                    this.log(`✅ Номер эпизода из родителя видео (${attr}): ${episodeNum}`, 'debug');
+                                    return episodeNum;
+                                }
+                            }
+                        }
+                        parent = parent.parentElement;
+                        depth++;
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromVideoElements: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Вспомогательная функция для получения вложенных свойств
+         */
+        getNestedProperty(obj, path) {
+            return path.split('.').reduce((current, prop) => {
+                return current && current[prop] !== undefined ? current[prop] : undefined;
+            }, obj);
         }
 
         /**
@@ -562,42 +802,114 @@
         }
 
         /**
-         * Извлечение номера эпизода из DOM элементов
+         * Извлечение номера эпизода из DOM элементов (расширенная версия для lampa.mx)
          */
         extractEpisodeFromDOM() {
             try {
-                // Селекторы для поиска номера эпизода
+                this.log('🔍 Поиск номера эпизода в DOM...', 'debug');
+
+                // Расширенные селекторы для различных версий Lampa
                 const selectors = [
+                    // Стандартные селекторы
                     '.series__episode.active',
                     '.episode-item.active',
                     '.current-episode',
                     '.selected-episode',
                     '[data-episode]',
                     '.episode-number',
-                    '.ep-number'
+                    '.ep-number',
+                    
+                    // Селекторы для lampa.mx
+                    '.torrent-item.active',
+                    '.torrent-item.focus',
+                    '.item.active',
+                    '.item.focus',
+                    '.selector.active',
+                    '.selector.focus',
+                    '.player-series__episode.active',
+                    '.player-episode.active',
+                    '.episode.active',
+                    '.season-episode.active',
+                    
+                    // Селекторы для плеера
+                    '.player-panel .active',
+                    '.player-controls .active',
+                    '.video-controls .active',
+                    
+                    // Общие селекторы
+                    '.active[data-season]',
+                    '.focus[data-season]',
+                    '.selected[data-season]'
                 ];
-                
+
+                // Data атрибуты для поиска
+                const dataAttributes = [
+                    'data-episode', 'data-ep', 'data-episode-number', 'data-number',
+                    'data-season', 'data-index', 'data-position', 'data-current'
+                ];
+
                 for (const selector of selectors) {
                     const elements = document.querySelectorAll(selector);
+                    this.log(`🔍 Найдено ${elements.length} элементов для селектора: ${selector}`, 'debug');
+                    
                     for (const element of elements) {
-                        // Проверяем data-атрибуты
-                        const dataEpisode = element.getAttribute('data-episode');
-                        if (dataEpisode) {
-                            const episodeNum = parseInt(dataEpisode);
-                            if (!isNaN(episodeNum) && episodeNum > 0) {
-                                return episodeNum;
+                        // Проверяем все data-атрибуты
+                        for (const attr of dataAttributes) {
+                            const value = element.getAttribute(attr);
+                            if (value) {
+                                const episodeNum = parseInt(value);
+                                if (!isNaN(episodeNum) && episodeNum > 0) {
+                                    this.log(`✅ Номер эпизода из DOM (${selector} ${attr}): ${episodeNum}`, 'debug');
+                                    return episodeNum;
+                                }
                             }
                         }
                         
-                        // Проверяем текстовое содержимое
-                        const text = element.textContent || element.innerText || '';
-                        const episodeMatch = text.match(/(\d+)/);
-                        if (episodeMatch) {
-                            const episodeNum = parseInt(episodeMatch[1]);
-                            if (!isNaN(episodeNum) && episodeNum > 0) {
-                                return episodeNum;
+                        // Проверяем текстовое содержимое с более точными регулярными выражениями
+                        const text = (element.textContent || element.innerText || '').trim();
+                        if (text) {
+                            const patterns = [
+                                /^(\d+)$/, // Только цифра
+                                /^(\d+)\s*серия/i, // "1 серия"
+                                /^(\d+)\s*эпизод/i, // "1 эпизод"
+                                /серия\s*(\d+)/i, // "серия 1"
+                                /эпизод\s*(\d+)/i, // "эпизод 1"
+                                /ep\.?\s*(\d+)/i, // "ep 1", "ep. 1"
+                                /episode\s*(\d+)/i, // "episode 1"
+                                /(\d+)\s*из\s*\d+/i, // "1 из 24"
+                                /^.*?(\d+).*?$/ // Любая цифра в тексте (последний шанс)
+                            ];
+                            
+                            for (const pattern of patterns) {
+                                const match = text.match(pattern);
+                                if (match && match[1]) {
+                                    const episodeNum = parseInt(match[1]);
+                                    if (!isNaN(episodeNum) && episodeNum > 0 && episodeNum <= 9999) {
+                                        this.log(`✅ Номер эпизода из текста DOM (${selector}): "${text}" -> ${episodeNum}`, 'debug');
+                                        return episodeNum;
+                                    }
+                                }
                             }
                         }
+                    }
+                }
+
+                // Дополнительный поиск в специфичных для lampa.mx местах
+                const specificSearches = [
+                    // Поиск в элементах с классами torrent
+                    () => this.searchInTorrentElements(),
+                    // Поиск в breadcrumbs
+                    () => this.searchInBreadcrumbs(),
+                    // Поиск в player info
+                    () => this.searchInPlayerInfo()
+                ];
+
+                for (const searchFunc of specificSearches) {
+                    try {
+                        const result = searchFunc();
+                        if (result !== null) return result;
+                    } catch (e) {
+                        // Игнорируем ошибки в дополнительных поисках
                     }
                 }
                 
@@ -606,6 +918,65 @@
                 this.log(`Ошибка извлечения эпизода из DOM: ${error.message}`, 'error');
                 return null;
             }
+        }
+
+        /**
+         * Поиск в торрент элементах (для lampa.mx)
+         */
+        searchInTorrentElements() {
+            const torrentElements = document.querySelectorAll('.torrent-item, .online-item, .online-torrent');
+            for (const element of torrentElements) {
+                if (element.classList.contains('active') || element.classList.contains('focus')) {
+                    const text = (element.textContent || '').trim();
+                    const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                    if (match) {
+                        const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из торрент элемента: ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Поиск в breadcrumbs
+         */
+        searchInBreadcrumbs() {
+            const breadcrumbs = document.querySelectorAll('.breadcrumb, .navigation, .path');
+            for (const breadcrumb of breadcrumbs) {
+                const text = (breadcrumb.textContent || '').trim();
+                const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                if (match) {
+                    const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                    if (!isNaN(episodeNum) && episodeNum > 0) {
+                        this.log(`✅ Номер эпизода из breadcrumbs: ${episodeNum}`, 'debug');
+                        return episodeNum;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Поиск в информации о плеере
+         */
+        searchInPlayerInfo() {
+            const playerInfos = document.querySelectorAll('.player-info, .video-info, .media-info, .current-info');
+            for (const info of playerInfos) {
+                const text = (info.textContent || '').trim();
+                const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                if (match) {
+                    const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                    if (!isNaN(episodeNum) && episodeNum > 0) {
+                        this.log(`✅ Номер эпизода из player info: ${episodeNum}`, 'debug');
+                        return episodeNum;
+                    }
+                }
+            }
+            return null;
         }
 
         /**
