@@ -3,8 +3,8 @@
 
     /**
      * Плагин автоматического пропуска заставок и концовок аниме для Lampa
-     * Использует API Anilibria
-     * Версия: 1.1.0
+     * Использует API Anilibria через прокси для обхода CORS
+     * Версия: 1.2.0
      * Поддерживает: Web, WebOS
      */
 
@@ -12,11 +12,12 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.1.0',
+        version: '1.2.0',
         api: {
             baseUrl: 'https://api.anilibria.tv/v3/',
-            timeout: 10000, // Увеличенный таймаут
-            retries: 5 // Увеличенное количество попыток
+            proxyUrl: 'https://cors-anywhere.herokuapp.com/', // Прокси для обхода CORS
+            timeout: 10000,
+            retries: 5
         },
         cache: {
             prefix: 'anilibria_skip_',
@@ -222,18 +223,20 @@
             }
 
             try {
-                const searchUrl = `${CONFIG.api.baseUrl}title/search?search=${encodeURIComponent(title)}&limit=5`;
+                const searchUrl = `${CONFIG.api.proxyUrl}${CONFIG.api.baseUrl}title/search?search=${encodeURIComponent(title)}&limit=5`;
                 const searchResponse = await this.apiRequest(searchUrl);
                 if (!searchResponse.data || searchResponse.data.length === 0) {
                     this.log(`Аниме "${title}" не найдено`, 'warning');
+                    this.showSkipNotification('error', 'Аниме не найдено в API');
                     return;
                 }
 
                 const animeId = searchResponse.data[0].id;
-                const titleUrl = `${CONFIG.api.baseUrl}title?id=${animeId}`;
+                const titleUrl = `${CONFIG.api.proxyUrl}${CONFIG.api.baseUrl}title?id=${animeId}`;
                 const titleResponse = await this.apiRequest(titleUrl);
                 if (!titleResponse.data) {
                     this.log('Данные аниме не получены', 'warning');
+                    this.showSkipNotification('error', 'Ошибка получения данных');
                     return;
                 }
 
@@ -244,9 +247,11 @@
                     this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
                 } else {
                     this.log(`Нет данных пропусков для "${title}"`, 'warning');
+                    this.showSkipNotification('error', 'Нет данных для пропуска');
                 }
             } catch (error) {
                 this.log(`Ошибка API: ${error.message}`, 'error');
+                this.showSkipNotification('error', 'Ошибка связи с API');
             }
         }
 
@@ -350,8 +355,8 @@
             }, this.settings.skipDelay);
         }
 
-        showSkipNotification(type) {
-            const typeText = type === 'intro' ? 'интро' : 'аутро';
+        showSkipNotification(type, message = null) {
+            const typeText = message || (type === 'intro' ? 'интро' : type === 'outro' ? 'аутро' : 'ошибка');
             try {
                 if (typeof Lampa.Noty !== 'undefined') {
                     Lampa.Noty.show(`Пропуск ${typeText}...`, {timeout: CONFIG.skip.notificationDuration});
