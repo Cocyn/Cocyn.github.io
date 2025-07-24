@@ -3,8 +3,8 @@
 
     /**
      * Плагин автоматического пропуска заставок и концовок аниме для Lampa
-     * Использует API Anilibria через прокси для обхода CORS
-     * Версия: 1.2.0
+     * Использует API Anilibria с несколькими прокси для обхода CORS
+     * Версия: 1.3.0
      * Поддерживает: Web, WebOS
      */
 
@@ -12,10 +12,14 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.2.0',
+        version: '1.3.0',
         api: {
             baseUrl: 'https://api.anilibria.tv/v3/',
-            proxyUrl: 'https://cors-anywhere.herokuapp.com/', // Прокси для обхода CORS
+            proxies: [
+                'https://cors-anywhere.herokuapp.com/',
+                'https://corsproxy.io/?',
+                'https://api.allorigins.win/get?url='
+            ],
             timeout: 10000,
             retries: 5
         },
@@ -222,40 +226,63 @@
                 }
             }
 
-            try {
-                const searchUrl = `${CONFIG.api.proxyUrl}${CONFIG.api.baseUrl}title/search?search=${encodeURIComponent(title)}&limit=5`;
-                const searchResponse = await this.apiRequest(searchUrl);
-                if (!searchResponse.data || searchResponse.data.length === 0) {
-                    this.log(`Аниме "${title}" не найдено`, 'warning');
-                    this.showSkipNotification('error', 'Аниме не найдено в API');
-                    return;
-                }
+            for (const proxy of CONFIG.api.proxies) {
+                try {
+                    const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}title/search?search=${encodeURIComponent(title)}&limit=5`);
+                    let searchResponse = await this.apiRequest(searchUrl, proxy);
+                    if (proxy.includes('allorigins.win')) {
+                        searchResponse = JSON.parse(searchResponse.contents);
+                    }
+                    if (!searchResponse.data || searchResponse.data.length === 0) {
+                        this.log(`Аниме "${title}" не найдено`, 'warning');
+                        this.showSkipNotification('error', 'Аниме не найдено в API');
+                        continue;
+                    }
 
-                const animeId = searchResponse.data[0].id;
-                const titleUrl = `${CONFIG.api.proxyUrl}${CONFIG.api.baseUrl}title?id=${animeId}`;
-                const titleResponse = await this.apiRequest(titleUrl);
-                if (!titleResponse.data) {
-                    this.log('Данные аниме не получены', 'warning');
-                    this.showSkipNotification('error', 'Ошибка получения данных');
-                    return;
-                }
+                    const animeId = searchResponse.data[0].id;
+                    const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}title?id=${animeId}`);
+                    let titleResponse = await this.apiRequest(titleUrl, proxy);
+                    if (proxy.includes('allorigins.win')) {
+                        titleResponse = JSON.parse(titleResponse.contents);
+                    }
+                    if (!titleResponse.data) {
+                        this.log('Данные аниме не получены', 'warning');
+                        this.showSkipNotification('error', 'Ошибка получения данных');
+                        continue;
+                    }
 
-                const skipData = this.extractSkipData(titleResponse.data, episode);
-                if (skipData) {
-                    this.skipData = skipData;
-                    if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
-                    this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
-                } else {
-                    this.log(`Нет данных пропусков для "${title}"`, 'warning');
-                    this.showSkipNotification('error', 'Нет данных для пропуска');
+                    const skipData = this.extractSkipData(titleResponse.data, episode);
+                    if (skipData) {
+                        this.skipData = skipData;
+                        if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
+                        this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
+                        return;
+                    } else {
+                        this.log(`Нет данных пропусков для "${title}"`, 'warning');
+                        this.showSkipNotification('error', 'Нет данных для пропуска');
+                        continue;
+                    }
+                } catch (error) {
+                    this.log(`Ошибка с прокси ${proxy}: ${error.message}`, 'error');
+                    if (error.message.includes('403') || error.message.includes('Failed to fetch')) {
+                        continue; // Переключение на следующий прокси
+                    }
+                    this.showSkipNotification('error', 'Ошибка связи с API');
+                    break;
                 }
-            } catch (error) {
-                this.log(`Ошибка API: ${error.message}`, 'error');
-                this.showSkipNotification('error', 'Ошибка связи с API');
             }
+            this.log('Все прокси не сработали', 'error');
+            this.showSkipNotification('error', 'Не удалось подключиться к API');
         }
 
-        async apiRequest(url, retries = CONFIG.api.retries) {
+        buildProxyUrl(proxy, url) {
+            if (proxy.includes('allorigins.win')) {
+                return `${proxy}${encodeURIComponent(url)}`;
+            }
+            return `${proxy}${url}`;
+        }
+
+        async apiRequest(url, proxy, retries = CONFIG.api.retries) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
@@ -359,11 +386,11 @@
             const typeText = message || (type === 'intro' ? 'интро' : type === 'outro' ? 'аутро' : 'ошибка');
             try {
                 if (typeof Lampa.Noty !== 'undefined') {
-                    Lampa.Noty.show(`Пропуск ${typeText}...`, {timeout: CONFIG.skip.notificationDuration});
+                    Lampa.Noty.show(`${typeText}...`, {timeout: CONFIG.skip.notificationDuration});
                 } else {
                     const div = document.createElement('div');
                     div.style.cssText = 'position: fixed; top: 10px; right: 10px; padding: 10px; background: #000; color: #fff;';
-                    div.textContent = `Пропуск ${typeText}...`;
+                    div.textContent = `${typeText}...`;
                     document.body.appendChild(div);
                     setTimeout(() => div.remove(), CONFIG.skip.notificationDuration);
                 }
