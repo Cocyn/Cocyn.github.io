@@ -201,10 +201,16 @@
             this.log('Setting up event listeners...', 'info');
 
             try {
-                // Слушаем изменения активности
-                Lampa.Listener.follow('activity', (e) => {
-                    if (e.type === 'activity' && e.component === 'full') {
-                        this.onActivityChange();
+                // Отслеживаем события как в rating плагине
+                Lampa.Listener.follow('full', (e) => {
+                    if (e.type === 'complite') {
+                        this.log(`Full event received: ${JSON.stringify(e.data)}`, 'debug');
+                        if (e.data && e.data.movie) {
+                            const title = e.data.movie.title || e.data.movie.name || e.data.movie.original_title || e.data.movie.original_name;
+                            if (title) {
+                                this.onTitleChange(title);
+                            }
+                        }
                     }
                 });
 
@@ -215,6 +221,11 @@
                     } else if (e.type === 'timeupdate') {
                         this.onTimeUpdate(e.current);
                     }
+                });
+
+                // Дополнительно слушаем изменения активности
+                Lampa.Listener.follow('activity', (e) => {
+                    this.log(`Activity event: ${e.type}`, 'debug');
                 });
 
                 this.log('Event listeners setup complete', 'success');
