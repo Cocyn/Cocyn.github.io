@@ -1,5 +1,5 @@
 /**
- * Anilibria Auto-Skip Plugin v1.6.0
+ * Anilibria Auto-Skip Plugin v1.7.0
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
@@ -84,6 +84,9 @@
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
                 this.showSkipNotification('success', '🎯 Anilibria Auto-Skip готов к работе!');
+                
+                // Проводим диагностику доступных API Lampa
+                this.performDiagnostics();
             } catch (error) {
                 this.log(`Ошибка инициализации: ${error.message}`, 'error');
             }
@@ -132,6 +135,37 @@
                 this.log('Слушатели событий настроены', 'success');
             } catch (error) {
                 this.log(`Ошибка настройки слушателей: ${error.message}`, 'error');
+            }
+        }
+
+        performDiagnostics() {
+            this.log('=== ДИАГНОСТИКА LAMPA ===', 'info');
+            try {
+                // Проверяем доступность основных API Lampa
+                this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Activity доступен: ${typeof Lampa?.Activity !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Listener доступен: ${typeof Lampa?.Listener !== 'undefined'}`, 'debug');
+                
+                // Проверяем текущую активность
+                if (typeof Lampa?.Activity?.active === 'function') {
+                    const activity = Lampa.Activity.active();
+                    this.log(`Текущая активность: ${activity ? 'есть' : 'нет'}`, 'debug');
+                    if (activity?.movie) {
+                        this.log(`Текущее видео: ${activity.movie.title || activity.movie.name || 'без названия'}`, 'debug');
+                    }
+                }
+                
+                // Проверяем видеоплееры
+                const videos = document.querySelectorAll('video');
+                this.log(`Найдено video элементов: ${videos.length}`, 'debug');
+                videos.forEach((video, index) => {
+                    this.log(`Video ${index}: duration=${video.duration}, currentTime=${video.currentTime}`, 'debug');
+                });
+                
+                this.log('=== КОНЕЦ ДИАГНОСТИКИ ===', 'info');
+            } catch (error) {
+                this.log(`Ошибка диагностики: ${error.message}`, 'error');
             }
         }
 
@@ -527,8 +561,8 @@
             this.timelineCheckInterval = setInterval(() => {
                 if (this.settings.autoSkipEnabled && this.skipData) {
                     try {
-                        const video = Lampa.Player.video();
-                        if (video && video.currentTime) {
+                        const video = this.getVideoElement();
+                        if (video && video.currentTime !== undefined) {
                             this.onTimeUpdate(video.currentTime);
                         }
                     } catch (error) {
@@ -536,6 +570,52 @@
                     }
                 }
             }, CONFIG.skip.checkInterval);
+        }
+
+        getVideoElement() {
+            // Пробуем несколько способов получить видеоплеер
+            try {
+                // Способ 1: Через Lampa.Player
+                if (typeof Lampa !== 'undefined' && Lampa.Player && Lampa.Player.video) {
+                    const video = Lampa.Player.video();
+                    if (video && video.currentTime !== undefined) {
+                        this.log(`Видео найдено через Lampa.Player: время ${this.formatTime(video.currentTime)}`, 'debug');
+                        return video;
+                    }
+                }
+
+                // Способ 2: Поиск video элементов в DOM
+                const videoElements = document.querySelectorAll('video');
+                for (let video of videoElements) {
+                    if (video.currentTime !== undefined && video.duration > 0) {
+                        this.log(`Видео найдено в DOM: время ${this.formatTime(video.currentTime)}`, 'debug');
+                        return video;
+                    }
+                }
+
+                // Способ 3: Поиск в специфичных для Lampa контейнерах
+                const selectors = [
+                    '.player video',
+                    '.player-video video', 
+                    '#player video',
+                    '.lampa-player video',
+                    '.video-player video'
+                ];
+                
+                for (let selector of selectors) {
+                    const video = document.querySelector(selector);
+                    if (video && video.currentTime !== undefined) {
+                        this.log(`Видео найдено через селектор ${selector}: время ${this.formatTime(video.currentTime)}`, 'debug');
+                        return video;
+                    }
+                }
+
+                this.log('Видеоплеер не найден', 'debug');
+                return null;
+            } catch (error) {
+                this.log(`Ошибка поиска видеоплеера: ${error.message}`, 'debug');
+                return null;
+            }
         }
 
         onTimeUpdate(currentTime) {
@@ -565,22 +645,42 @@
             this.lastSkipTime = now;
             
             try {
-                const video = Lampa.Player.video();
-                if (!video) return;
+                const video = this.getVideoElement();
+                if (!video) {
+                    this.log(`Не удалось найти видеоплеер для выполнения пропуска ${type}`, 'error');
+                    return;
+                }
                 
                 const currentTime = video.currentTime;
                 this.log(`${type} обнаружено в ${this.formatTime(currentTime)} - пропуск до ${this.formatTime(targetTime)}`, 'info');
                 
                 if (this.settings.showNotifications) {
-                    this.showSkipNotification(type, `Пропуск ${type === 'intro' ? 'заставки' : 'титров'}`);
+                    this.showSkipNotification(type, `⏩ Пропуск ${type === 'intro' ? 'заставки' : 'титров'}`);
                 }
                 
                 setTimeout(() => {
                     try {
                         video.currentTime = targetTime;
-                        this.log(`Пропуск ${type} выполнен`, 'success');
-                    } catch (error) {
-                        this.log(`Ошибка пропуска ${type}: ${error.message}`, 'error');
+                        this.log(`✅ Пропуск ${type} выполнен: установлено время ${this.formatTime(targetTime)}`, 'success');
+                        
+                        // Дополнительная проверка что пропуск сработал
+                        setTimeout(() => {
+                            if (Math.abs(video.currentTime - targetTime) > 2) {
+                                this.log(`⚠️ Пропуск может быть неточным: ожидалось ${this.formatTime(targetTime)}, получено ${this.formatTime(video.currentTime)}`, 'warning');
+                            }
+                        }, 1000);
+                        
+                    } catch (skipError) {
+                        this.log(`Ошибка установки времени: ${skipError.message}`, 'error');
+                        
+                        // Альтернативный способ через события
+                        try {
+                            const seekEvent = new CustomEvent('seek', { detail: { time: targetTime } });
+                            video.dispatchEvent(seekEvent);
+                            this.log('Попытка пропуска через события', 'debug');
+                        } catch (eventError) {
+                            this.log(`Ошибка события пропуска: ${eventError.message}`, 'error');
+                        }
                     }
                 }, this.settings.skipDelay);
             } catch (error) {
