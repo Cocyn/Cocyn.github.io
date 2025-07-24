@@ -83,7 +83,7 @@
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.4 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.3 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -310,7 +310,7 @@
         }
 
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.4 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.3 ===', 'info');
             try {
                 this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
@@ -546,15 +546,6 @@
                 }
 
                 this.log('⚠️ Не удалось определить номер эпизода всеми методами', 'warning');
-                
-                // FALLBACK: Если не можем определить эпизод, но видео есть - предполагаем 1-й эпизод
-                const videoElements = document.querySelectorAll('video');
-                if (videoElements.length > 0 && this.currentTitle) {
-                    this.log('🎯 FALLBACK: Предполагаем 1-й эпизод, так как видео активно', 'info');
-                    this.showSkipNotification('info', '🔍 Установлен эпизод 1 (автоопределение)');
-                    return 1;
-                }
-                
                 return null;
 
             } catch (error) {
@@ -886,11 +877,7 @@
                                 /ep\.?\s*(\d+)/i, // "ep 1", "ep. 1"
                                 /episode\s*(\d+)/i, // "episode 1"
                                 /(\d+)\s*из\s*\d+/i, // "1 из 24"
-                                /S\d+E(\d+)/i, // "S01E05" формат
-                                /(\d+)\.mp4/i, // Файл видео "05.mp4"
-                                /(\d+)\.mkv/i, // Файл видео "05.mkv"
-                                /\[(\d+)\]/i, // В квадратных скобках [05]
-                                /.*?(\d+).*?/ // Любая цифра в тексте (последний шанс)
+                                /^.*?(\d+).*?$/ // Любая цифра в тексте (последний шанс)
                             ];
                             
                             for (const pattern of patterns) {
@@ -898,26 +885,10 @@
                                 if (match && match[1]) {
                                     const episodeNum = parseInt(match[1]);
                                     if (!isNaN(episodeNum) && episodeNum > 0 && episodeNum <= 9999) {
-                                        this.log(`✅ Номер эпизода из текста DOM (${selector}): "${text}" -> ${episodeNum}`, 'debug'); 
-                                        
-                                        // Особая обработка для .selector.focus
-                                        if (selector === '.selector.focus') {
-                                            this.log(`🎯 НАЙДЕН ЭПИЗОД В .selector.focus: ${episodeNum}`, 'info');
-                                        }
-                                        
+                                        this.log(`✅ Номер эпизода из текста DOM (${selector}): "${text}" -> ${episodeNum}`, 'debug');
                                         return episodeNum;
                                     }
                                 }
-                            }
-                        }
-                        
-                        // Специальная обработка для .selector.focus - анализируем все дочерние элементы
-                        if (selector === '.selector.focus') {
-                            this.log(`🔍 Углубленный анализ .selector.focus элемента...`, 'debug');
-                            const result = this.deepAnalyzeElement(element);
-                            if (result !== null) {
-                                this.log(`🎯 ГЛУБОКИЙ АНАЛИЗ НАШЕЛ: ${result}`, 'info');
-                                return result;
                             }
                         }
                     }
@@ -947,61 +918,6 @@
                 this.log(`Ошибка извлечения эпизода из DOM: ${error.message}`, 'error');
                 return null;
             }
-        }
-
-        /**
-         * Глубокий анализ элемента для поиска номера эпизода
-         */
-        deepAnalyzeElement(element) {
-            this.log(`🔍 Глубокий анализ элемента: ${element.tagName}.${element.className}`, 'debug');
-            
-            // Анализируем все дочерние элементы
-            const allChildren = element.querySelectorAll('*');
-            this.log(`🔍 Найдено ${allChildren.length} дочерних элементов`, 'debug');
-            
-            for (const child of allChildren) {
-                // Проверяем текст каждого дочернего элемента
-                const text = (child.textContent || child.innerText || '').trim();
-                if (text) {
-                    this.log(`🔍 Анализируем текст: "${text}"`, 'debug');
-                    
-                    const patterns = [
-                        /^(\d+)$/, // Только цифра
-                        /(\d+)\.mp4/i, /(\d+)\.mkv/i, /(\d+)\.avi/i, // Видео файлы
-                        /S\d+E(\d+)/i, // S01E05 формат
-                        /episode\s*(\d+)/i, /серия\s*(\d+)/i, /эпизод\s*(\d+)/i,
-                        /\[(\d+)\]/, /\((\d+)\)/, // В скобках
-                        /(\d+)\s*из\s*\d+/i, // "5 из 24"
-                        /(\d{1,3})/ // Любое число от 1 до 3 цифр
-                    ];
-                    
-                    for (const pattern of patterns) {
-                        const match = text.match(pattern);
-                        if (match && match[1]) {
-                            const episodeNum = parseInt(match[1]);
-                            if (!isNaN(episodeNum) && episodeNum > 0 && episodeNum <= 999) {
-                                this.log(`✅ Найден эпизод в дочернем элементе: "${text}" -> ${episodeNum}`, 'debug');
-                                return episodeNum;
-                            }
-                        }
-                    }
-                }
-                
-                // Проверяем атрибуты дочерних элементов
-                const dataAttrs = ['data-episode', 'data-ep', 'data-number', 'data-index', 'title', 'alt'];
-                for (const attr of dataAttrs) {
-                    const value = child.getAttribute(attr);
-                    if (value) {
-                        const episodeNum = parseInt(value);
-                        if (!isNaN(episodeNum) && episodeNum > 0) {
-                            this.log(`✅ Найден эпизод в атрибуте ${attr}: ${episodeNum}`, 'debug');
-                            return episodeNum;
-                        }
-                    }
-                }
-            }
-            
-            return null;
         }
 
         /**
