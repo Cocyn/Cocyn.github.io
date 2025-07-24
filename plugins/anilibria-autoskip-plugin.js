@@ -1,5 +1,5 @@
 /**
- * Anilibria Auto-Skip Plugin v1.7.0
+ * Anilibria Auto-Skip Plugin v1.8.0
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
@@ -71,6 +71,9 @@
             this.timelineCheckInterval = null;
             this.lastSkipTime = 0;
             this.isInitialized = false;
+            this.lastVideoCount = 0;
+            this.lastDataRefresh = 0;
+            this.lastActivityCheck = null;
             this.init();
         }
 
@@ -128,8 +131,29 @@
                 });
 
                 Lampa.Listener.follow('player', (e) => {
+                    this.log(`Событие плеера: ${e.type}`, 'debug');
                     if (e.type === 'start') this.onPlayerStart();
                     else if (e.type === 'timeupdate') this.onTimeUpdate(e.current);
+                    else if (e.type === 'end' || e.type === 'destroy') this.onPlayerEnd();
+                });
+
+                // Дополнительные события для отслеживания активности
+                Lampa.Listener.follow('activity', (e) => {
+                    this.log(`Событие активности: ${e.type}`, 'debug');
+                    if (e.type === 'start' && e.object?.movie) {
+                        const title = e.object.movie.title || e.object.movie.name;
+                        if (title) {
+                            setTimeout(() => this.onTitleChange(title), 1000);
+                        }
+                    }
+                });
+
+                // Слушаем события изменения страниц
+                Lampa.Listener.follow('page', (e) => {
+                    this.log(`Событие страницы: ${e.type}`, 'debug');
+                    if (e.type === 'player') {
+                        setTimeout(() => this.recheckCurrentContent(), 2000);
+                    }
                 });
 
                 this.log('Слушатели событий настроены', 'success');
@@ -178,11 +202,58 @@
             try {
                 const activity = Lampa.Activity.active();
                 if (!activity) return;
+                
                 const title = activity.movie?.title || activity.movie?.name || activity.movie?.original_title || activity.movie?.original_name;
                 const episode = activity.episode ?? Lampa.Player?.episode?.number;
-                if (title && title !== this.currentTitle) this.onTitleChange(title, episode);
+                
+                // Проверяем смену названия или эпизода
+                const titleChanged = title && title !== this.currentTitle;
+                const episodeChanged = episode && episode !== this.currentEpisode;
+                
+                if (titleChanged || episodeChanged) {
+                    this.log(`Обнаружено изменение: title="${title}" (было "${this.currentTitle}"), episode=${episode} (было ${this.currentEpisode})`, 'debug');
+                    this.onTitleChange(title, episode);
+                }
+                
+                // Дополнительно проверяем появление новых видео элементов
+                this.checkForNewVideoElements();
+                
             } catch (error) {
                 this.log(`Ошибка проверки активности: ${error.message}`, 'debug');
+            }
+        }
+
+        checkForNewVideoElements() {
+            const videos = document.querySelectorAll('video');
+            const currentVideoCount = videos.length;
+            
+            if (currentVideoCount !== this.lastVideoCount) {
+                this.lastVideoCount = currentVideoCount;
+                this.log(`Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                
+                // Если появилось новое видео и у нас есть данные пропуска, перезапускаем мониторинг
+                if (currentVideoCount > 0 && this.skipData) {
+                    this.startTimelineMonitoring();
+                }
+                
+                // Проверяем, нужно ли обновить данные для текущего контента
+                if (this.currentTitle && currentVideoCount > 0) {
+                    setTimeout(() => {
+                        this.refreshSkipDataIfNeeded();
+                    }, 2000); // Даем время видео загрузиться
+                }
+            }
+        }
+
+        async refreshSkipDataIfNeeded() {
+            if (!this.currentTitle) return;
+            
+            // Если прошло больше 30 секунд с последнего обновления, обновляем данные
+            const now = Date.now();
+            if (now - this.lastDataRefresh > 30000) {
+                this.log('Обновление данных пропуска для нового видео...', 'debug');
+                this.lastDataRefresh = now;
+                await this.fetchSkipData(this.currentTitle, this.currentEpisode);
             }
         }
 
@@ -196,6 +267,41 @@
         onPlayerStart() {
             this.log('Плеер запущен, начинаем мониторинг времени', 'debug');
             this.startTimelineMonitoring();
+            
+            // Перепроверяем текущий контент при запуске плеера
+            setTimeout(() => this.recheckCurrentContent(), 1000);
+        }
+
+        onPlayerEnd() {
+            this.log('Плеер остановлен', 'debug');
+            if (this.timelineCheckInterval) {
+                clearInterval(this.timelineCheckInterval);
+                this.timelineCheckInterval = null;
+            }
+        }
+
+        async recheckCurrentContent() {
+            this.log('Перепроверка текущего контента...', 'debug');
+            
+            try {
+                const activity = Lampa.Activity.active();
+                if (activity?.movie) {
+                    const title = activity.movie.title || activity.movie.name || activity.movie.original_title || activity.movie.original_name;
+                    const episode = activity.episode ?? Lampa.Player?.episode?.number;
+                    
+                    if (title) {
+                        // Принудительно обновляем данные если контент изменился
+                        if (title !== this.currentTitle || episode !== this.currentEpisode) {
+                            this.log(`Принудительное обновление данных для: "${title}" эпизод ${episode}`, 'info');
+                            this.currentTitle = null; // Сбрасываем чтобы инициировать новый запрос
+                            this.currentEpisode = null;
+                            await this.onTitleChange(title, episode);
+                        }
+                    }
+                }
+            } catch (error) {
+                this.log(`Ошибка перепроверки контента: ${error.message}`, 'error');
+            }
         }
 
         async fetchSkipData(title, episode = null) {
@@ -203,12 +309,19 @@
             this.log('Запрос к API Anilibria...', 'info');
             const cacheKey = `${CONFIG.cache.prefix}${title}${episode ? `_ep${episode}` : ''}`;
 
+            // Проверяем кэш, но только если контент не изменился недавно
             if (this.settings.cacheEnabled) {
                 const cached = this.getFromCache(cacheKey);
                 if (cached) {
-                    this.skipData = cached;
-                    this.log('Используются кэшированные данные', 'debug');
-                    return;
+                    // Если это тот же контент что и раньше, используем кэш
+                    const sameContent = this.currentTitle === title && this.currentEpisode === episode;
+                    if (sameContent) {
+                        this.skipData = cached;
+                        this.log('Используются кэшированные данные', 'debug');
+                        return;
+                    } else {
+                        this.log('Контент изменился, обновляем данные пропуска', 'debug');
+                    }
                 }
             }
 
@@ -229,7 +342,9 @@
                     this.skipData = fallbackData;
                     if (this.settings.cacheEnabled) this.saveToCache(cacheKey, fallbackData);
                     this.log(`Используются встроенные данные пропуска: ${this.formatSkipData(fallbackData)}`, 'success');
-                    this.showSkipNotification('success', 'Данные для автопропуска загружены (встроенная база)');
+                    
+                    const episodeText = episode ? ` (серия ${episode})` : '';
+                    this.showSkipNotification('success', `📺 Данные пропуска загружены${episodeText}`);
                     return;
                 }
             }
