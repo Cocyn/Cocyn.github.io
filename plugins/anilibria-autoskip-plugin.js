@@ -1,3 +1,24 @@
+/**
+ * Anilibria Auto-Skip Plugin v1.6.0
+ * 
+ * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
+ * 
+ * КАК РАБОТАЕТ:
+ * 1. Плагин мониторит активность в Lampa и определяет просматриваемое аниме
+ * 2. Сначала проверяет встроенную базу данных с временными метками
+ * 3. Если не находит - пытается получить данные из API Anilibria
+ * 4. При воспроизведении проверяет текущее время и автоматически пропускает заставки/титры
+ * 
+ * ВСТРОЕННАЯ БАЗА ДАННЫХ содержит данные для популярных аниме:
+ * - "Восхождение героя щита", "Атака титанов", "Клинок, рассекающий демонов" и др.
+ * 
+ * ИНДИКАЦИЯ РАБОТЫ:
+ * - При инициализации показывается уведомление "готов к работе"
+ * - При обнаружении аниме показывается "данные загружены"
+ * - При пропуске показывается "пропуск заставки/титров"
+ * 
+ * URL: http://localhost:5000/anilibria-autoskip-plugin.js
+ */
 (function() {
     'use strict';
 
@@ -62,6 +83,7 @@
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip готов к работе!');
             } catch (error) {
                 this.log(`Ошибка инициализации: ${error.message}`, 'error');
             }
@@ -574,44 +596,68 @@
             } else {
                 switch (type) {
                     case 'intro':
-                        displayMessage = 'Пропуск заставки';
+                        displayMessage = '⏩ Пропуск заставки';
                         break;
                     case 'outro':
-                        displayMessage = 'Пропуск титров';
+                        displayMessage = '⏩ Пропуск титров';
                         break;
                     case 'success':
-                        displayMessage = 'Успешно';
+                        displayMessage = '✅ Успешно';
                         break;
                     case 'error':
-                        displayMessage = 'Ошибка';
+                        displayMessage = '❌ Ошибка';
+                        break;
+                    case 'warning':
+                        displayMessage = '⚠️ Предупреждение';
                         break;
                     default:
-                        displayMessage = 'Уведомление';
+                        displayMessage = 'ℹ️ Уведомление';
                 }
             }
             
             try {
-                if (typeof Lampa.Noty !== 'undefined') {
+                if (typeof Lampa !== 'undefined' && Lampa.Noty) {
                     Lampa.Noty.show(displayMessage, {timeout: CONFIG.skip.notificationDuration});
                 } else {
-                    // Fallback уведомление
+                    // Fallback уведомление с улучшенным стилем
                     const div = document.createElement('div');
                     div.style.cssText = `
                         position: fixed; 
                         top: 20px; 
                         right: 20px; 
-                        padding: 10px 15px; 
-                        background: rgba(0,0,0,0.8); 
+                        padding: 12px 18px; 
+                        background: linear-gradient(135deg, rgba(0,0,0,0.9), rgba(20,20,20,0.9)); 
                         color: #fff; 
-                        border-radius: 5px; 
-                        z-index: 9999;
+                        border-radius: 8px; 
+                        z-index: 99999;
                         font-size: 14px;
-                        max-width: 300px;
+                        font-weight: 500;
+                        max-width: 350px;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                        border: 1px solid rgba(255,255,255,0.1);
+                        backdrop-filter: blur(10px);
+                        animation: slideIn 0.3s ease-out;
                     `;
                     div.textContent = displayMessage;
+                    
+                    // Добавляем анимацию
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        @keyframes slideIn {
+                            from { transform: translateX(100%); opacity: 0; }
+                            to { transform: translateX(0); opacity: 1; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                    
                     document.body.appendChild(div);
                     setTimeout(() => {
-                        if (div.parentNode) div.parentNode.removeChild(div);
+                        if (div.parentNode) {
+                            div.style.animation = 'slideIn 0.3s ease-out reverse';
+                            setTimeout(() => {
+                                if (div.parentNode) div.parentNode.removeChild(div);
+                            }, 300);
+                        }
                     }, CONFIG.skip.notificationDuration);
                 }
             } catch (error) {
