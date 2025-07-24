@@ -4,7 +4,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4',
+        version: '1.4.41',
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
             proxies: ['https://proxy.cors.sh/', 'https://corsproxy.io/?'],
