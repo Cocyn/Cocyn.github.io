@@ -4,7 +4,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4.41',
+        version: '1.4.4',
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
             proxies: ['https://proxy.cors.sh/', 'https://corsproxy.io/?'],
@@ -394,3 +394,33 @@
 
         sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        log(message, type = 'info') {
+            if (!this.settings.debugEnabled && type === 'debug') return;
+            const prefix = '[AnilibriaAutoSkip]';
+            switch (type) {
+                case 'success':
+                    console.log(`%c${prefix} ${message}`, 'color: #10b981');
+                    break;
+                case 'error':
+                    console.error(`%c${prefix} ${message}`, 'color: #ef4444');
+                    break;
+                case 'warning':
+                    console.warn(`%c${prefix} ${message}`, 'color: #f59e0b');
+                    break;
+                case 'info':
+                    console.info(`%c${prefix} ${message}`, 'color: #3b82f6');
+                    break;
+                case 'debug':
+                    console.debug(`%c${prefix} ${message}`, 'color: #6b7280');
+                    break;
+            }
+        }
+    }
+
+    const plugin = new AnilibriaAutoSkipPlugin();
+    if (typeof window !== 'undefined') {
+        window.AnilibriaAutoSkipPlugin = plugin;
+    }
+})();
