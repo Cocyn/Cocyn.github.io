@@ -1,14 +1,14 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.7
+ * Anilibria Auto-Skip Plugin v1.9.8
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
- * ИСПРАВЛЕНИЯ v1.9.7:
- * - Улучшен DOM Observer для отслеживания смены эпизодов
- * - Добавлена реакция на изменения в элементах серий (.selector, .episode-item)
- * - Исправлена проблема с определением следующего эпизода
- * - Добавлено детальное логирование процесса определения эпизодов
- * - Оптимизированы интервалы проверки (500мс вместо 1000мс)
+ * ИСПРАВЛЕНИЯ v1.9.8:
+ * - ИСПРАВЛЕНА проблема принудительного перехода на эпизод 1
+ * - Убрана FALLBACK логика, которая сбрасывала номер эпизода
+ * - Восстановлена стабильная работа определения следующих эпизодов
+ * - Используется проверенный код из рабочей версии GitHub
+ * - Сохранены все методы определения эпизодов из DOM
  * 
  * URL: http://localhost:5000/anilibria-autoskip-plugin.js
  */
@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.7', // Улучшен DOM Observer - теперь отслеживает смену эпизодов
+        version: '1.9.8', // Исправлена проблема FALLBACK - убран принудительный переход на эпизод 1
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -71,20 +71,19 @@
             this.currentPlayer = null;
             this.currentVideoElement = null;
             this.lastContentHash = null;
-            this.lastEpisodeFromDOM = null; // Кэш последнего найденного эпизода
             this.init();
         }
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.7...', 'info');
+                this.log('Инициализация плагина v1.9.8...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.6 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.8 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -281,188 +280,275 @@
                 }
             }
 
-            // 2. Из DOM - используем проверенный метод
-            const domEpisode = this.extractEpisodeFromDOM();
-            if (domEpisode !== null) {
-                this.log(`✅ Эпизод из DOM: ${domEpisode}`, 'debug');
-                this.currentEpisode = domEpisode;
+            // 2. Немедленный поиск в DOM
+            setTimeout(() => {
+                const domEpisode = this.extractEpisodeFromDOM();
+                if (domEpisode !== null) {
+                    this.log(`✅ Эпизод из DOM (агрессивный поиск): ${domEpisode}`, 'debug');
+                    this.currentEpisode = domEpisode;
+                    return;
+                }
+
+                // 3. Поиск в активности Lampa
+                const activityEpisode = this.extractFromActivity();
+                if (activityEpisode !== null) {
+                    this.log(`✅ Эпизод из активности (агрессивный поиск): ${activityEpisode}`, 'debug');
+                    this.currentEpisode = activityEpisode;
+                    return;
+                }
+
+                // 4. Поиск в глобальных переменных
+                const globalEpisode = this.extractFromLampaGlobals();
+                if (globalEpisode !== null) {
+                    this.log(`✅ Эпизод из глобальных (агрессивный поиск): ${globalEpisode}`, 'debug');
+                    this.currentEpisode = globalEpisode;
+                    return;
+                }
+
+                this.log('⚠️ Агрессивный поиск эпизода не дал результатов', 'warning');
+            }, 500);
+        }
+
+        performDiagnostics() {
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.5 ===', 'info');
+            try {
+                this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Activity доступен: ${typeof Lampa?.Activity !== 'undefined'}`, 'debug');
+                this.log(`Lampa.Listener доступен: ${typeof Lampa?.Listener !== 'undefined'}`, 'debug');
+                
+                // WebOS диагностика
+                const isWebOS = navigator.userAgent.includes('webOS') || navigator.userAgent.includes('LG');
+                this.log(`WebOS обнаружен: ${isWebOS}`, 'info');
+                
+                if (isWebOS) {
+                    this.log('WebOS оптимизация активирована', 'info');
+                    this.webOSMode = true;
+                }
+                
+                // Проверяем текущую активность
+                if (typeof Lampa?.Activity?.active === 'function') {
+                    const activity = Lampa.Activity.active();
+                    this.log(`Текущая активность: ${activity ? 'есть' : 'нет'}`, 'debug');
+                    if (activity?.movie) {
+                        const title = this.extractTitle(activity.movie);
+                        this.log(`Текущее видео: ${title || 'без названия'}`, 'debug');
+                    }
+                }
+                
+                // Проверяем видеоплееры
+                const videos = document.querySelectorAll('video');
+                this.log(`Найдено video элементов: ${videos.length}`, 'debug');
+                videos.forEach((video, index) => {
+                    this.log(`Video ${index}: duration=${video.duration}, currentTime=${video.currentTime}`, 'debug');
+                });
+                
+                this.log('=== КОНЕЦ ДИАГНОСТИКИ ===', 'info');
+            } catch (error) {
+                this.log(`Ошибка диагностики: ${error.message}`, 'error');
+            }
+        }
+
+        startActivityMonitoring() {
+            this.log('Запуск мониторинга активности...', 'info');
+            
+            const monitoringInterval = this.webOSMode ? 4000 : 2000;
+            setInterval(() => this.checkCurrentActivity(), monitoringInterval);
+            
+            this.setupDOMObserver();
+        }
+
+        setupDOMObserver() {
+            if (typeof MutationObserver === 'undefined') {
+                this.log('MutationObserver не поддерживается, используем fallback', 'debug');
                 return;
             }
-
-            this.log('⚠️ Агрессивный поиск не дал результатов', 'warning');
+            
+            let lastMutationTime = 0;
+            const mutationThrottle = 3000;
+            
+            const observer = new MutationObserver((mutations) => {
+                const now = Date.now();
+                if (now - lastMutationTime < mutationThrottle) {
+                    return;
+                }
+                
+                let hasVideoChanges = false;
+                
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            if (node.tagName === 'VIDEO' || node.querySelector('video')) {
+                                hasVideoChanges = true;
+                                this.log('Обнаружен новый video элемент через MutationObserver', 'debug');
+                            }
+                        }
+                    });
+                });
+                
+                if (hasVideoChanges) {
+                    lastMutationTime = now;
+                    this.onVideoDetected();
+                }
+            });
+            
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: false
+            });
+            
+            this.log(`DOM Observer настроен${this.webOSMode ? ' для WebOS (оптимизированный)' : ''}`, 'debug');
         }
 
-        /**
-         * Улучшенное извлечение номера эпизода из DOM - основной рабочий метод
-         */
-        extractEpisodeFromDOM() {
-            this.log('🔍 Поиск номера эпизода в DOM...', 'debug');
-
-            // Основные селекторы для поиска эпизодов (проверенные в v1.9.5)
-            const episodeSelectors = [
-                '.series__episode.active',
-                '.episode-item.active', 
-                '.current-episode',
-                '.selected-episode',
-                '[data-episode]',
-                '.episode-number',
-                '.ep-number',
-                '.torrent-item.active',
-                '.torrent-item.focus',
-                '.item.active',
-                '.item.focus',
-                '.selector.active',
-                '.selector.focus' // Основной рабочий селектор
-            ];
-
-            for (const selector of episodeSelectors) {
-                try {
-                    const elements = document.querySelectorAll(selector);
-                    this.log(`🔍 Найдено ${elements.length} элементов для селектора: ${selector}`, 'debug');
+        checkCurrentActivity() {
+            try {
+                const currentVideoCount = document.querySelectorAll('video').length;
+                
+                if (currentVideoCount !== this.lastVideoCount) {
+                    this.log(`Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                    this.lastVideoCount = currentVideoCount;
                     
-                    for (const element of elements) {
-                        const episodeNum = this.extractEpisodeFromElement(element);
-                        if (episodeNum !== null) {
-                            this.log(`✅ Номер эпизода из ${selector}: ${episodeNum}`, 'debug');
-                            this.log(`🎯 НАЙДЕН ЭПИЗОД В ${selector}: ${episodeNum}`, 'info');
-                            this.lastEpisodeFromDOM = episodeNum; // Кэшируем найденный эпизод
-                            return episodeNum;
-                        }
-                    }
-                } catch (error) {
-                    this.log(`Ошибка поиска в селекторе ${selector}: ${error.message}`, 'warning');
-                }
-            }
-
-            // Если текущий поиск не дал результатов, используем кэшированное значение
-            if (this.lastEpisodeFromDOM !== null) {
-                this.log(`🔄 Используем кэшированный эпизод из DOM: ${this.lastEpisodeFromDOM}`, 'debug');
-                return this.lastEpisodeFromDOM;
-            }
-
-            this.log('⚠️ Эпизод в DOM не найден', 'warning');
-            return null;
-        }
-
-        /**
-         * Извлечение номера эпизода из конкретного DOM элемента
-         */
-        extractEpisodeFromElement(element) {
-            if (!element) return null;
-
-            // Получаем весь текст элемента
-            const fullText = element.textContent || element.innerText || '';
-            this.log(`🔍 Анализируем текст элемента: "${fullText.trim()}"`, 'debug');
-
-            // Исключаем элементы таймера плеера (формат MM:SS или HH:MM:SS)
-            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(fullText.trim())) {
-                this.log(`⏰ Пропускаем таймер: ${fullText.trim()}`, 'debug');
-                return null;
-            }
-
-            // Ищем номер в начале текста (наиболее надежный метод)
-            const startMatch = fullText.match(/^(\d+)/);
-            if (startMatch) {
-                const num = parseInt(startMatch[1]);
-                if (!isNaN(num) && num > 0 && num <= 9999) {
-                    this.log(`✅ Номер эпизода из начала текста: "${fullText.trim()}" -> ${num}`, 'debug');
-                    return num;
-                }
-            }
-
-            // Ищем номер после определенных паттернов
-            const patterns = [
-                /(?:эпизод|episode|ep|серия|№)\s*(\d+)/i,
-                /(\d+)\s*(?:эпизод|episode|ep|серия)/i,
-                /\b(\d+)\b/g // Любые числа в тексте
-            ];
-
-            for (const pattern of patterns) {
-                const matches = fullText.matchAll(pattern);
-                for (const match of matches) {
-                    const num = parseInt(match[1]);
-                    if (!isNaN(num) && num > 0 && num <= 9999) {
-                        this.log(`✅ Номер эпизода по паттерну: "${fullText.trim()}" -> ${num}`, 'debug');
-                        return num;
+                    if (currentVideoCount > 0) {
+                        this.log('Новое видео обнаружено, принудительная перепроверка контента', 'debug');
+                        setTimeout(() => this.forceContentRecheck(), 2000);
                     }
                 }
-            }
-
-            // Проверяем data-атрибуты
-            if (element.dataset) {
-                for (const [key, value] of Object.entries(element.dataset)) {
-                    if (key.toLowerCase().includes('episode') || key.toLowerCase().includes('ep')) {
-                        const num = parseInt(value);
-                        if (!isNaN(num) && num > 0) {
-                            this.log(`✅ Номер эпизода из data-${key}: ${num}`, 'debug');
-                            return num;
+                
+                // Проверяем активность Lampa
+                if (typeof Lampa?.Activity?.active === 'function') {
+                    const activity = Lampa.Activity.active();
+                    if (activity && activity !== this.lastActivityCheck) {
+                        this.lastActivityCheck = activity;
+                        
+                        if (activity.movie) {
+                            const title = this.extractTitle(activity.movie);
+                            if (title && title !== this.currentTitle) {
+                                this.log(`Обнаружена смена контента через активность: ${title}`, 'debug');
+                                this.onTitleChange(title);
+                            }
                         }
                     }
                 }
+                
+            } catch (error) {
+                this.log(`Ошибка проверки активности: ${error.message}`, 'error');
             }
+        }
 
-            return null;
+        onVideoDetected() {
+            this.log('Обнаружен контейнер с video элементом', 'debug');
+            setTimeout(() => this.forceContentRecheck(), 4000);
+        }
+
+        async onTitleChange(title) {
+            try {
+                this.log(`Обнаружено аниме: "${title}"`, 'info');
+                this.currentTitle = title;
+                
+                // Сбрасываем данные эпизода при смене тайтла
+                this.currentEpisode = null;
+                this.currentSeason = null;
+                
+                await this.loadSkipData(title);
+            } catch (error) {
+                this.log(`Ошибка при смене тайтла: ${error.message}`, 'error');
+            }
+        }
+
+        async loadSkipData(title) {
+            try {
+                this.log('Запрос к API Anilibria...', 'debug');
+                
+                // Проверяем кэш
+                const cacheKey = `${CONFIG.cache.prefix}${title}`;
+                if (this.settings.cacheEnabled && this.cache.has(cacheKey)) {
+                    const cachedData = this.cache.get(cacheKey);
+                    if (Date.now() - cachedData.timestamp < CONFIG.cache.expiry) {
+                        this.log('Используются кэшированные данные', 'debug');
+                        this.skipData = cachedData.data;
+                        this.showSkipNotification('info', `📊 Данные для "${title}" загружены из кэша`);
+                        return;
+                    }
+                }
+                
+                // Проверяем встроенную базу данных
+                const builtInData = this.getBuiltInData(title);
+                if (builtInData) {
+                    this.log('Используются встроенные данные', 'debug');
+                    this.skipData = builtInData;
+                    
+                    // Кэшируем встроенные данные
+                    if (this.settings.cacheEnabled) {
+                        this.cache.set(cacheKey, {
+                            data: builtInData,
+                            timestamp: Date.now()
+                        });
+                    }
+                    
+                    this.showSkipNotification('success', `📊 Данные для "${title}" загружены (встроенная база)`);
+                    return;
+                }
+                
+                this.log('Данные для аниме не найдены', 'warning');
+                this.skipData = null;
+                
+            } catch (error) {
+                this.log(`Ошибка загрузки данных: ${error.message}`, 'error');
+                this.skipData = null;
+            }
         }
 
         /**
-         * Основной метод определения номера эпизода
+         * УЛУЧШЕННАЯ ФУНКЦИЯ ИЗВЛЕЧЕНИЯ НОМЕРА ЭПИЗОДА v2.0
+         * Специально адаптирована для lampa.mx и других версий Lampa
          */
         extractEpisodeNumber() {
             try {
                 this.log('🔍 Начинаем поиск номера эпизода...', 'debug');
 
-                // Метод 1: Из активности Lampa (расширенный)
-                this.log('🔍 Анализируем активность Lampa...', 'debug');
-                const activity = Lampa.Activity?.active?.object;
-                if (activity && activity.movie) {
-                    // Проверяем различные поля активности
-                    const episodeFields = ['episode', 'episode_number', 'current_episode', 'selected_episode'];
-                    for (const field of episodeFields) {
-                        if (activity[field] !== undefined) {
-                            const num = parseInt(activity[field]);
-                            if (!isNaN(num) && num > 0) {
-                                this.log(`✅ Эпизод из активности (${field}): ${num}`, 'debug');
-                                return num;
-                            }
-                        }
-                    }
-                }
+                // Метод 1: Из глобальных переменных Lampa
+                const globalEpisode = this.extractFromLampaGlobals();
+                if (globalEpisode !== null) return globalEpisode;
 
-                // Метод 2: Из DOM элементов (основной рабочий метод)
+                // Метод 2: Из активности Lampa (расширенный)
+                const activityEpisode = this.extractFromActivity();
+                if (activityEpisode !== null) return activityEpisode;
+
+                // Метод 3: Из Player API
+                const playerEpisode = this.extractFromPlayer();
+                if (playerEpisode !== null) return playerEpisode;
+
+                // Метод 4: Из Storage Lampa
+                const storageEpisode = this.extractFromStorage();
+                if (storageEpisode !== null) return storageEpisode;
+
+                // Метод 5: Из DOM элементов (улучшенный)
                 const domEpisode = this.extractEpisodeFromDOM();
                 if (domEpisode !== null) return domEpisode;
 
-                // Метод 3: Из Storage Lampa
-                try {
-                    const storage = Lampa.Storage.get('online_choice_anilibria');
-                    if (storage && storage.episode) {
-                        const num = parseInt(storage.episode);
-                        if (!isNaN(num) && num > 0) {
-                            this.log(`✅ Эпизод из Storage: ${num}`, 'debug');
-                            return num;
-                        }
-                    }
-                } catch (e) {
-                    this.log('Storage недоступен', 'debug');
-                }
+                // Метод 6: Из URL страницы
+                const urlEpisode = this.extractEpisodeFromURL();
+                if (urlEpisode !== null) return urlEpisode;
 
-                // Метод 4: Из URL страницы
-                const urlMatch = window.location.href.match(/episode[=\/](\d+)/i);
-                if (urlMatch) {
-                    const num = parseInt(urlMatch[1]);
-                    if (!isNaN(num) && num > 0) {
-                        this.log(`✅ Эпизод из URL: ${num}`, 'debug');
-                        return num;
-                    }
-                }
+                // Метод 7: Из заголовка страницы
+                const titleEpisode = this.extractEpisodeFromTitle();
+                if (titleEpisode !== null) return titleEpisode;
 
-                // Метод 5: Используем сохраненное значение (БЕЗ сброса в 1)
-                if (this.currentEpisode !== null && this.currentEpisode > 0) {
+                // Метод 8: Из видео элементов
+                const videoEpisode = this.extractFromVideoElements();
+                if (videoEpisode !== null) return videoEpisode;
+
+                // Метод 9: Используем сохраненное значение
+                if (this.currentEpisode !== null) {
                     this.log(`🔄 Используем сохраненный номер эпизода: ${this.currentEpisode}`, 'debug');
                     return this.currentEpisode;
                 }
 
-                this.log('⚠️ Не удалось определить номер эпизода', 'warning');
+                this.log('⚠️ Не удалось определить номер эпизода всеми методами', 'warning');
+                
+                // НЕ устанавливаем принудительно эпизод 1 - это вызывало проблемы
+                // Возвращаем сохраненное значение или null
                 return null;
 
             } catch (error) {
@@ -472,251 +558,608 @@
         }
 
         /**
-         * Мониторинг активности для обнаружения изменений
+         * Извлечение из глобальных переменных Lampa
          */
-        startActivityMonitoring() {
-            this.log('Запуск мониторинга активности...', 'info');
-            
-            // Защита от спама - отслеживаем время последнего срабатывания
-            this.lastDOMCheck = 0;
-            this.lastLogTime = 0;
-            
-            // DOM Observer для отслеживания изменений
-            if (typeof MutationObserver !== 'undefined') {
-                this.domObserver = new MutationObserver((mutations) => {
-                    const now = Date.now();
+        extractFromLampaGlobals() {
+            try {
+                // Проверяем глобальные объекты Lampa
+                const globalPaths = [
+                    'Lampa.Select.show.season.episodes',
+                    'Lampa.Select.show.episode',
+                    'Lampa.Controller.enabled().movie.episode',
+                    'Lampa.Controller.enabled().activity.movie.episode',
+                    'window.lampa_settings.player_episode',
+                    'window.lampa_episode',
+                    'window.episode_current'
+                ];
+
+                for (const path of globalPaths) {
+                    try {
+                        const value = this.getNestedProperty(window, path);
+                        if (value !== undefined) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из глобальных (${path}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки доступа к свойствам
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromLampaGlobals: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из активности Lampa (расширенный)
+         */
+        extractFromActivity() {
+            try {
+                if (typeof Lampa?.Activity?.active !== 'function') return null;
+
+                const activity = Lampa.Activity.active();
+                if (!activity) return null;
+
+                this.log('🔍 Анализируем активность Lampa...', 'debug');
+
+                // Расширенный список полей для поиска эпизода
+                const episodeFields = [
+                    'episode', 'episode_number', 'episodeNumber', 'ep', 'number',
+                    'current_episode', 'selected_episode', 'active_episode',
+                    'episode_id', 'episode_index', 'episode_current'
+                ];
+
+                // Проверяем корневые поля активности
+                for (const field of episodeFields) {
+                    const value = activity[field];
+                    if (value !== undefined && value !== null) {
+                        const episodeNum = parseInt(value);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из активности (${field}): ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
+                }
+
+                // Проверяем вложенные объекты
+                const nestedObjects = ['movie', 'data', 'object', 'card', 'item'];
+                for (const objName of nestedObjects) {
+                    const obj = activity[objName];
+                    if (obj && typeof obj === 'object') {
+                        for (const field of episodeFields) {
+                            const value = obj[field];
+                            if (value !== undefined && value !== null) {
+                                const episodeNum = parseInt(value);
+                                if (!isNaN(episodeNum) && episodeNum > 0) {
+                                    this.log(`✅ Номер эпизода из ${objName}.${field}: ${episodeNum}`, 'debug');
+                                    return episodeNum;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromActivity: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из Player API
+         */
+        extractFromPlayer() {
+            try {
+                if (!this.currentPlayer) return null;
+
+                const episodeFields = ['episode', 'episode_number', 'ep', 'number'];
+                for (const field of episodeFields) {
+                    const value = this.currentPlayer[field];
+                    if (value !== undefined && value !== null) {
+                        const episodeNum = parseInt(value);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из плеера (${field}): ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromPlayer: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из Storage Lampa
+         */
+        extractFromStorage() {
+            try {
+                if (typeof Lampa?.Storage?.get !== 'function') return null;
+
+                const storageKeys = [
+                    'player_episode',
+                    'current_episode',
+                    'selected_episode',
+                    'episode_number',
+                    'last_episode'
+                ];
+
+                for (const key of storageKeys) {
+                    try {
+                        const value = Lampa.Storage.get(key);
+                        if (value !== undefined && value !== null) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из Storage (${key}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    } catch (e) {
+                        // Игнорируем ошибки Storage
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromStorage: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение из видео элементов
+         */
+        extractFromVideoElements() {
+            try {
+                const videos = document.querySelectorAll('video');
+                for (const video of videos) {
+                    // Проверяем data-атрибуты видео
+                    const episodeAttrs = ['data-episode', 'data-ep', 'data-episode-number'];
+                    for (const attr of episodeAttrs) {
+                        const value = video.getAttribute(attr);
+                        if (value) {
+                            const episodeNum = parseInt(value);
+                            if (!isNaN(episodeNum) && episodeNum > 0) {
+                                this.log(`✅ Номер эпизода из видео (${attr}): ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
+                    }
+
+                    // Проверяем родительские элементы видео
+                    let parent = video.parentElement;
+                    let depth = 0;
+                    while (parent && depth < 5) {
+                        for (const attr of episodeAttrs) {
+                            const value = parent.getAttribute(attr);
+                            if (value) {
+                                const episodeNum = parseInt(value);
+                                if (!isNaN(episodeNum) && episodeNum > 0) {
+                                    this.log(`✅ Номер эпизода из родителя видео (${attr}): ${episodeNum}`, 'debug');
+                                    return episodeNum;
+                                }
+                            }
+                        }
+                        parent = parent.parentElement;
+                        depth++;
+                    }
+                }
+
+                return null;
+            } catch (error) {
+                this.log(`Ошибка в extractFromVideoElements: ${error.message}`, 'debug');
+                return null;
+            }
+        }
+
+        /**
+         * Вспомогательная функция для получения вложенных свойств
+         */
+        getNestedProperty(obj, path) {
+            return path.split('.').reduce((current, prop) => {
+                return current && current[prop] !== undefined ? current[prop] : undefined;
+            }, obj);
+        }
+
+        /**
+         * Извлечение номера эпизода из URL
+         */
+        extractEpisodeFromURL() {
+            try {
+                const url = window.location.href;
+                
+                // Различные паттерны для поиска номера эпизода в URL
+                const patterns = [
+                    /episode[_-]?(\d+)/i,
+                    /ep[_-]?(\d+)/i,
+                    /серия[_-]?(\d+)/i,
+                    /[?&]episode=(\d+)/i,
+                    /[?&]ep=(\d+)/i,
+                    /\/(\d+)\/episode/i,
+                    /\/episode\/(\d+)/i
+                ];
+                
+                for (const pattern of patterns) {
+                    const match = url.match(pattern);
+                    if (match && match[1]) {
+                        const episodeNum = parseInt(match[1]);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            return episodeNum;
+                        }
+                    }
+                }
+                
+                return null;
+            } catch (error) {
+                this.log(`Ошибка извлечения эпизода из URL: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        /**
+         * Извлечение номера эпизода из DOM элементов (расширенная версия для lampa.mx)
+         */
+        extractEpisodeFromDOM() {
+            try {
+                this.log('🔍 Поиск номера эпизода в DOM...', 'debug');
+
+                // Расширенные селекторы для различных версий Lampa
+                const selectors = [
+                    // Стандартные селекторы
+                    '.series__episode.active',
+                    '.episode-item.active',
+                    '.current-episode',
+                    '.selected-episode',
+                    '[data-episode]',
+                    '.episode-number',
+                    '.ep-number',
                     
-                    // Защита от спама - не более одной проверки в 500мс
-                    if (now - this.lastDOMCheck < 500) return;
-                    this.lastDOMCheck = now;
+                    // Селекторы для lampa.mx
+                    '.torrent-item.active',
+                    '.torrent-item.focus',
+                    '.item.active',
+                    '.item.focus',
+                    '.selector.active',
+                    '.selector.focus',
+                    '.player-series__episode.active',
+                    '.player-episode.active',
+                    '.episode.active',
+                    '.season-episode.active',
                     
-                    let shouldRecheck = false;
-                    let hasNewVideo = false;
-                    let hasEpisodeChange = false;
+                    // Селекторы для плеера
+                    '.player-panel .active',
+                    '.player-controls .active',
+                    '.video-controls .active',
                     
-                    for (const mutation of mutations) {
-                        if (mutation.type === 'childList') {
-                            for (const node of mutation.addedNodes) {
-                                if (node.nodeType === 1) { // Element node
-                                    // Реальные video элементы
-                                    if (node.tagName === 'VIDEO') {
-                                        hasNewVideo = true;
-                                        shouldRecheck = true;
-                                        break;
-                                    }
-                                    // Контейнеры с video
-                                    else if (node.querySelector && node.querySelector('video')) {
-                                        hasNewVideo = true;
-                                        shouldRecheck = true;
-                                        break;
-                                    }
-                                    // ВАЖНО: Элементы, указывающие на смену эпизода
-                                    else if (node.classList && (
-                                        node.classList.contains('selector') ||
-                                        node.classList.contains('series__episode') ||
-                                        node.classList.contains('episode-item') ||
-                                        node.classList.contains('torrent-item')
-                                    )) {
-                                        hasEpisodeChange = true;
-                                        shouldRecheck = true;
+                    // Общие селекторы
+                    '.active[data-season]',
+                    '.focus[data-season]',
+                    '.selected[data-season]'
+                ];
+
+                // Data атрибуты для поиска
+                const dataAttributes = [
+                    'data-episode', 'data-ep', 'data-episode-number', 'data-number',
+                    'data-season', 'data-index', 'data-position', 'data-current'
+                ];
+
+                for (const selector of selectors) {
+                    const elements = document.querySelectorAll(selector);
+                    this.log(`🔍 Найдено ${elements.length} элементов для селектора: ${selector}`, 'debug');
+                    
+                    for (const element of elements) {
+                        // Проверяем все data-атрибуты
+                        for (const attr of dataAttributes) {
+                            const value = element.getAttribute(attr);
+                            if (value) {
+                                const episodeNum = parseInt(value);
+                                if (!isNaN(episodeNum) && episodeNum > 0) {
+                                    this.log(`✅ Номер эпизода из DOM (${selector} ${attr}): ${episodeNum}`, 'debug');
+                                    return episodeNum;
+                                }
+                            }
+                        }
+                        
+                        // Проверяем текстовое содержимое с более точными регулярными выражениями
+                        const text = (element.textContent || element.innerText || '').trim();
+                        if (text) {
+                            // Исключаем временные метки (00:02:03, 01:23:45, etc.)
+                            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+                                this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
+                                continue;
+                            }
+                            
+                            const patterns = [
+                                /^(\d+)$/, // Только цифра
+                                /^(\d+)\s*серия/i, // "1 серия"
+                                /^(\d+)\s*эпизод/i, // "1 эпизод"
+                                /серия\s*(\d+)/i, // "серия 1"
+                                /эпизод\s*(\d+)/i, // "эпизод 1"
+                                /ep\.?\s*(\d+)/i, // "ep 1", "ep. 1"
+                                /episode\s*(\d+)/i, // "episode 1"
+                                /(\d+)\s*из\s*\d+/i, // "1 из 24"
+                                /S\d+E(\d+)/i, // "S01E05" формат
+                                /(\d+)\.mp4/i, // Файл видео "05.mp4"
+                                /(\d+)\.mkv/i, // Файл видео "05.mkv"
+                                /\[(\d+)\]/i, // В квадратных скобках [05]
+                                /.*?(\d+).*?/ // Любая цифра в тексте (последний шанс)
+                            ];
+                            
+                            for (const pattern of patterns) {
+                                const match = text.match(pattern);
+                                if (match && match[1]) {
+                                    const episodeNum = parseInt(match[1]);
+                                    if (!isNaN(episodeNum) && episodeNum > 0 && episodeNum <= 9999) {
+                                        this.log(`✅ Номер эпизода из текста DOM (${selector}): "${text}" -> ${episodeNum}`, 'debug'); 
+                                        
+                                        // Особая обработка для .selector.focus
+                                        if (selector === '.selector.focus') {
+                                            this.log(`🎯 НАЙДЕН ЭПИЗОД В .selector.focus: ${episodeNum}`, 'info');
+                                        }
+                                        
+                                        return episodeNum;
                                     }
                                 }
                             }
                         }
                         
-                        // Также проверяем изменения текста в существующих элементах
-                        if (mutation.type === 'characterData' || mutation.type === 'childList') {
-                            const target = mutation.target;
-                            if (target && target.parentElement && target.parentElement.classList && (
-                                target.parentElement.classList.contains('selector') ||
-                                target.parentElement.classList.contains('focus')
-                            )) {
-                                hasEpisodeChange = true;
-                                shouldRecheck = true;
+                        // Специальная обработка для .selector.focus - анализируем все дочерние элементы
+                        if (selector === '.selector.focus') {
+                            this.log(`🔍 Углубленный анализ .selector.focus элемента...`, 'debug');
+                            const result = this.deepAnalyzeElement(element);
+                            if (result !== null) {
+                                this.log(`🎯 ГЛУБОКИЙ АНАЛИЗ НАШЕЛ: ${result}`, 'info');
+                                return result;
                             }
                         }
-                    }
-                    
-                    if (shouldRecheck) {
-                        // Для video элементов - проверяем количество
-                        if (hasNewVideo) {
-                            const currentVideoCount = document.querySelectorAll('video').length;
-                            if (currentVideoCount !== this.lastVideoCount) {
-                                // Ограничиваем логирование - не чаще одного раза в 3 секунды
-                                if (now - this.lastLogTime > 3000) {
-                                    this.log(`🔍 Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
-                                    this.lastLogTime = now;
-                                }
-                                
-                                this.lastVideoCount = currentVideoCount;
-                                setTimeout(() => this.forceContentRecheck(), 1500);
-                            }
-                        }
-                        
-                        // Для смены эпизодов - всегда перепроверяем
-                        if (hasEpisodeChange) {
-                            if (now - this.lastLogTime > 2000) {
-                                this.log('🔍 Обнаружены изменения элементов эпизодов', 'debug');
-                                this.lastLogTime = now;
-                            }
-                            setTimeout(() => this.forceContentRecheck(), 1000);
-                        }
-                    }
-                });
-
-                this.domObserver.observe(document.body, {
-                    childList: true,
-                    subtree: true
-                });
-
-                this.log('🔍 DOM Observer настроен', 'debug');
-            }
-
-            // Периодическая проверка активности
-            setInterval(() => {
-                this.periodicActivityCheck();
-            }, 10000);
-        }
-
-        periodicActivityCheck() {
-            try {
-                const currentActivity = Lampa.Activity?.active?.component;
-                if (currentActivity !== this.lastActivityCheck) {
-                    this.log(`🔄 Смена активности: ${this.lastActivityCheck} -> ${currentActivity}`, 'debug');
-                    this.lastActivityCheck = currentActivity;
-                    
-                    if (currentActivity === 'player') {
-                        setTimeout(() => this.recheckCurrentContent(), 3000);
                     }
                 }
-            } catch (error) {
-                this.log(`Ошибка проверки активности: ${error.message}`, 'debug');
-            }
-        }
 
-        /**
-         * Обработчик смены названия аниме
-         */
-        onTitleChange(title) {
-            if (!title) return;
+                // Дополнительный поиск в специфичных для lampa.mx местах
+                const specificSearches = [
+                    // Поиск в элементах с классами torrent
+                    () => this.searchInTorrentElements(),
+                    // Поиск в breadcrumbs
+                    () => this.searchInBreadcrumbs(),
+                    // Поиск в player info
+                    () => this.searchInPlayerInfo()
+                ];
 
-            this.log(`Обнаружено аниме: "${title}"`, 'info');
-            
-            if (this.currentTitle !== title) {
-                this.currentTitle = title;
-                this.currentEpisode = null; // Сбрасываем эпизод при смене тайтла
-                this.currentSeason = null;
-                this.skipData = null;
-                this.lastContentHash = null;
-                this.lastEpisodeFromDOM = null; // Сбрасываем кэш эпизода
+                for (const searchFunc of specificSearches) {
+                    try {
+                        const result = searchFunc();
+                        if (result !== null) return result;
+                    } catch (e) {
+                        // Игнорируем ошибки в дополнительных поисках
+                    }
+                }
                 
-                this.loadAnilibriaData(title);
-            }
-        }
-
-        /**
-         * Загрузка данных из API Anilibria или встроенной базы
-         */
-        async loadAnilibriaData(title) {
-            this.log('🔍 Запрос к API Anilibria...', 'debug');
-            
-            try {
-                // Проверяем кэш
-                const cacheKey = `${CONFIG.cache.prefix}${title}`;
-                if (this.settings.cacheEnabled && this.cache.has(cacheKey)) {
-                    const cached = this.cache.get(cacheKey);
-                    if (Date.now() - cached.timestamp < CONFIG.cache.expiry) {
-                        this.log('🔍 Используются кэшированные данные', 'debug');
-                        this.skipData = cached.data;
-                        this.showSkipNotification('info', '📊 Данные для "' + title + '" загружены из кэша');
-                        return;
-                    }
-                }
-
-                // Используем встроенные данные как fallback
-                this.log('🔍 Используются встроенные данные', 'debug');
-                this.skipData = this.getFallbackData(title);
-                
-                if (this.skipData) {
-                    this.showSkipNotification('success', '📊 Данные для "' + title + '" загружены (встроенная база)');
-                    
-                    // Кэшируем данные
-                    if (this.settings.cacheEnabled) {
-                        this.cache.set(cacheKey, {
-                            data: this.skipData,
-                            timestamp: Date.now()
-                        });
-                    }
-                } else {
-                    this.showSkipNotification('warning', '⚠️ Данные для "' + title + '" не найдены');
-                }
-
+                return null;
             } catch (error) {
-                this.log(`Ошибка загрузки данных: ${error.message}`, 'error');
-                this.showSkipNotification('error', '❌ Ошибка загрузки данных');
+                this.log(`Ошибка извлечения эпизода из DOM: ${error.message}`, 'error');
+                return null;
             }
         }
 
         /**
-         * Встроенная база данных с данными о пропуске
+         * Глубокий анализ элемента для поиска номера эпизода
          */
-        getFallbackData(title) {
-            const fallbackDatabase = {
-                'Восхождение героя щита': {
-                    title: 'Восхождение героя щита',
-                    episodes: {
-                        1: { opening: { start: 89, end: 178 }, ending: { start: 1289, end: 1378 } },
-                        2: { opening: { start: 92, end: 181 }, ending: { start: 1292, end: 1381 } },
-                        3: { opening: { start: 95, end: 184 }, ending: { start: 1295, end: 1384 } },
-                        4: { opening: { start: 98, end: 187 }, ending: { start: 1298, end: 1387 } },
-                        5: { opening: { start: 101, end: 190 }, ending: { start: 1301, end: 1390 } },
-                        6: { opening: { start: 104, end: 193 }, ending: { start: 1304, end: 1393 } },
-                        7: { opening: { start: 107, end: 196 }, ending: { start: 1307, end: 1396 } },
-                        8: { opening: { start: 110, end: 199 }, ending: { start: 1310, end: 1399 } },
-                        9: { opening: { start: 113, end: 202 }, ending: { start: 1313, end: 1402 } },
-                        10: { opening: { start: 116, end: 205 }, ending: { start: 1316, end: 1405 } }
+        deepAnalyzeElement(element) {
+            this.log(`🔍 Глубокий анализ элемента: ${element.tagName}.${element.className}`, 'debug');
+            
+            // Анализируем все дочерние элементы
+            const allChildren = element.querySelectorAll('*');
+            this.log(`🔍 Найдено ${allChildren.length} дочерних элементов`, 'debug');
+            
+            for (const child of allChildren) {
+                // Проверяем текст каждого дочернего элемента
+                const text = (child.textContent || child.innerText || '').trim();
+                if (text) {
+                    this.log(`🔍 Анализируем текст: "${text}"`, 'debug');
+                    
+                    // Исключаем временные метки (00:02:03, 01:23:45, etc.)
+                    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+                        this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
+                        continue;
+                    }
+                    
+                    const patterns = [
+                        /^(\d+)$/, // Только цифра
+                        /(\d+)\.mp4/i, /(\d+)\.mkv/i, /(\d+)\.avi/i, // Видео файлы
+                        /S\d+E(\d+)/i, // S01E05 формат
+                        /episode\s*(\d+)/i, /серия\s*(\d+)/i, /эпизод\s*(\d+)/i,
+                        /\[(\d+)\]/, /\((\d+)\)/, // В скобках
+                        /(\d+)\s*из\s*\d+/i, // "5 из 24"
+                        /(\d{1,3})/ // Любое число от 1 до 3 цифр
+                    ];
+                    
+                    for (const pattern of patterns) {
+                        const match = text.match(pattern);
+                        if (match && match[1]) {
+                            const episodeNum = parseInt(match[1]);
+                            if (!isNaN(episodeNum) && episodeNum > 0 && episodeNum <= 999) {
+                                this.log(`✅ Найден эпизод в дочернем элементе: "${text}" -> ${episodeNum}`, 'debug');
+                                return episodeNum;
+                            }
+                        }
                     }
                 }
-            };
-
-            // Поиск по частичному совпадению названия
-            for (const [dbTitle, data] of Object.entries(fallbackDatabase)) {
-                if (title.toLowerCase().includes(dbTitle.toLowerCase()) || 
-                    dbTitle.toLowerCase().includes(title.toLowerCase())) {
-                    return data;
+                
+                // Проверяем атрибуты дочерних элементов
+                const dataAttrs = ['data-episode', 'data-ep', 'data-number', 'data-index', 'title', 'alt'];
+                for (const attr of dataAttrs) {
+                    const value = child.getAttribute(attr);
+                    if (value) {
+                        const episodeNum = parseInt(value);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Найден эпизод в атрибуте ${attr}: ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
                 }
             }
-
+            
             return null;
         }
 
         /**
-         * Принудительная перепроверка контента
+         * Поиск в торрент элементах (для lampa.mx)
+         */
+        searchInTorrentElements() {
+            const torrentElements = document.querySelectorAll('.torrent-item, .online-item, .online-torrent');
+            for (const element of torrentElements) {
+                if (element.classList.contains('active') || element.classList.contains('focus')) {
+                    const text = (element.textContent || '').trim();
+                    const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                    if (match) {
+                        const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            this.log(`✅ Номер эпизода из торрент элемента: ${episodeNum}`, 'debug');
+                            return episodeNum;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Поиск в breadcrumbs
+         */
+        searchInBreadcrumbs() {
+            const breadcrumbs = document.querySelectorAll('.breadcrumb, .navigation, .path');
+            for (const breadcrumb of breadcrumbs) {
+                const text = (breadcrumb.textContent || '').trim();
+                const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                if (match) {
+                    const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                    if (!isNaN(episodeNum) && episodeNum > 0) {
+                        this.log(`✅ Номер эпизода из breadcrumbs: ${episodeNum}`, 'debug');
+                        return episodeNum;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Поиск в информации о плеере
+         */
+        searchInPlayerInfo() {
+            const playerInfos = document.querySelectorAll('.player-info, .video-info, .media-info, .current-info');
+            for (const info of playerInfos) {
+                const text = (info.textContent || '').trim();
+                const match = text.match(/(\d+)\s*серия|серия\s*(\d+)|(\d+)\s*эпизод|эпизод\s*(\d+)/i);
+                if (match) {
+                    const episodeNum = parseInt(match[1] || match[2] || match[3] || match[4]);
+                    if (!isNaN(episodeNum) && episodeNum > 0) {
+                        this.log(`✅ Номер эпизода из player info: ${episodeNum}`, 'debug');
+                        return episodeNum;
+                    }
+                }
+            }
+            return null;
+        }
+
+        /**
+         * Извлечение номера эпизода из заголовка страницы
+         */
+        extractEpisodeFromTitle() {
+            try {
+                const title = document.title;
+                
+                const patterns = [
+                    /серия\s*(\d+)/i,
+                    /episode\s*(\d+)/i,
+                    /ep\.?\s*(\d+)/i,
+                    /эпизод\s*(\d+)/i,
+                    /s\d+e(\d+)/i
+                ];
+                
+                for (const pattern of patterns) {
+                    const match = title.match(pattern);
+                    if (match && match[1]) {
+                        const episodeNum = parseInt(match[1]);
+                        if (!isNaN(episodeNum) && episodeNum > 0) {
+                            return episodeNum;
+                        }
+                    }
+                }
+                
+                return null;
+            } catch (error) {
+                this.log(`Ошибка извлечения эпизода из заголовка: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        /**
+         * УЛУЧШЕННАЯ ФУНКЦИЯ ПЕРЕПРОВЕРКИ КОНТЕНТА
          */
         forceContentRecheck() {
             if (this.isRecheckInProgress) {
-                this.log('🔍 Перепроверка уже выполняется, пропускаем', 'debug');
+                this.log('Перепроверка уже выполняется, пропускаем', 'debug');
                 return;
             }
 
             this.isRecheckInProgress = true;
             
             try {
-                this.log('🔍 Принудительная перепроверка контента при смене видео/эпизода...', 'debug');
+                this.log('Принудительная перепроверка контента при смене видео...', 'debug');
                 
-                // Сбрасываем кэш для повторного определения
-                const oldEpisode = this.lastEpisodeNumber;
-                this.lastEpisodeNumber = null;
-                this.lastEpisodeFromDOM = null;
+                // Получаем текущую информацию
+                const currentTitle = this.getCurrentTitle();
+                const currentEpisode = this.extractEpisodeNumber();
+                const currentSeason = this.extractSeasonNumber();
                 
-                // Проверяем новый эпизод немедленно
-                const newEpisode = this.extractEpisodeNumber();
-                if (newEpisode && newEpisode !== oldEpisode) {
-                    this.log(`🔍 Смена эпизода обнаружена: ${oldEpisode} → ${newEpisode}`, 'debug');
+                // Создаем хэш текущего контента
+                const contentHash = `${currentTitle}_s${currentSeason}_e${currentEpisode}`;
+                
+                this.log(`Текущий контент: "${currentTitle}" s${currentSeason} e${currentEpisode}`, 'debug');
+                this.log(`Хэш контента: ${contentHash}`, 'debug');
+                this.log(`Предыдущий хэш: ${this.lastContentHash}`, 'debug');
+                
+                // Проверяем, изменился ли контент
+                if (this.lastContentHash === contentHash) {
+                    this.log('Контент не изменился, пропускаем обновление', 'debug');
+                    return;
                 }
                 
-                this.recheckCurrentContent();
+                // Контент изменился
+                this.log(`КОНТЕНТ ИЗМЕНИЛСЯ! Старый: ${this.lastContentHash} -> Новый: ${contentHash}`, 'info');
+                this.lastContentHash = contentHash;
+                
+                // Обновляем текущие данные
+                if (currentTitle && currentTitle !== this.currentTitle) {
+                    this.log(`Смена тайтла: "${this.currentTitle}" -> "${currentTitle}"`, 'info');
+                    this.onTitleChange(currentTitle);
+                }
+                
+                if (currentEpisode !== null && currentEpisode !== this.currentEpisode) {
+                    this.log(`Смена эпизода: ${this.currentEpisode} -> ${currentEpisode}`, 'info');
+                    this.currentEpisode = currentEpisode;
+                    
+                    // Показываем уведомление о смене эпизода
+                    this.showSkipNotification('info', `📺 Эпизод ${currentEpisode}`);
+                }
+                
+                if (currentSeason !== null && currentSeason !== this.currentSeason) {
+                    this.log(`Смена сезона: ${this.currentSeason} -> ${currentSeason}`, 'info');
+                    this.currentSeason = currentSeason;
+                }
+                
+            } catch (error) {
+                this.log(`Ошибка принудительной перепроверки: ${error.message}`, 'error');
             } finally {
+                // Снимаем блокировку через некоторое время
                 setTimeout(() => {
                     this.isRecheckInProgress = false;
                 }, 2000);
@@ -724,45 +1167,25 @@
         }
 
         /**
-         * Перепроверка текущего контента
+         * Получение текущего названия аниме
          */
-        recheckCurrentContent() {
+        getCurrentTitle() {
             try {
-                const episode = this.extractEpisodeNumber();
-                const season = this.extractSeasonNumber() || 1;
-
-                this.log(`🔍 Текущий контент: "${this.currentTitle}" s${season} e${episode}`, 'debug');
-
-                // Создаем хэш текущего контента
-                const contentHash = `${this.currentTitle}_s${season}_e${episode}`;
-                this.log(`🔍 Хэш контента: ${contentHash}`, 'debug');
-                this.log(`🔍 Предыдущий хэш: ${this.lastContentHash}`, 'debug');
-
-                // Проверяем, изменился ли контент
-                if (this.lastContentHash !== contentHash) {
-                    this.log(`КОНТЕНТ ИЗМЕНИЛСЯ! Старый: ${this.lastContentHash} -> Новый: ${contentHash}`, 'info');
-                    this.lastContentHash = contentHash;
-
-                    // Обновляем текущие значения ТОЛЬКО если они действительно изменились
-                    if (this.currentEpisode !== episode && episode !== null) {
-                        this.log(`Смена эпизода: ${this.currentEpisode} -> ${episode}`, 'info');
-                        this.currentEpisode = episode;
-                        this.showSkipNotification('info', `📺 Эпизод ${episode}`);
+                // Пробуем получить из активности
+                if (typeof Lampa?.Activity?.active === 'function') {
+                    const activity = Lampa.Activity.active();
+                    if (activity?.movie) {
+                        const title = this.extractTitle(activity.movie);
+                        if (title) return title;
                     }
-
-                    if (this.currentSeason !== season) {
-                        this.log(`Смена сезона: ${this.currentSeason} -> ${season}`, 'info');
-                        this.currentSeason = season;
-                    }
-
-                    // Начинаем мониторинг времени для пропуска
-                    this.startTimelineMonitoring();
-                } else {
-                    this.log('🔍 Контент не изменился', 'debug');
                 }
-
+                
+                // Возвращаем сохраненное название
+                return this.currentTitle;
+                
             } catch (error) {
-                this.log(`Ошибка перепроверки контента: ${error.message}`, 'error');
+                this.log(`Ошибка получения текущего названия: ${error.message}`, 'error');
+                return this.currentTitle;
             }
         }
 
@@ -770,143 +1193,119 @@
          * Извлечение номера сезона
          */
         extractSeasonNumber() {
-            // Пока просто возвращаем 1, в будущем можно улучшить
-            return 1;
-        }
-
-        /**
-         * Обработчики событий плеера
-         */
-        onPlayerStart() {
-            this.log('🎬 Плеер запущен', 'debug');
-            setTimeout(() => this.recheckCurrentContent(), 2000);
-        }
-
-        onTimeUpdate(currentTime) {
-            if (this.settings.autoSkipEnabled && this.skipData && this.currentEpisode) {
-                this.checkSkipPoints(currentTime);
+            try {
+                // Аналогично extractEpisodeNumber, но для сезонов
+                if (typeof Lampa?.Activity?.active === 'function') {
+                    const activity = Lampa.Activity.active();
+                    if (activity) {
+                        const seasonFields = ['season', 'season_number', 'seasonNumber', 'current_season'];
+                        
+                        for (const field of seasonFields) {
+                            if (activity[field] !== undefined) {
+                                const seasonNum = parseInt(activity[field]);
+                                if (!isNaN(seasonNum) && seasonNum > 0) {
+                                    return seasonNum;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return this.currentSeason || 1; // По умолчанию первый сезон
+                
+            } catch (error) {
+                this.log(`Ошибка извлечения номера сезона: ${error.message}`, 'error');
+                return 1;
             }
         }
 
-        onPlayerEnd() {
-            this.log('🛑 Плеер остановлен', 'debug');
-            this.stopTimelineMonitoring();
+        recheckCurrentContent() {
+            setTimeout(() => this.forceContentRecheck(), 500);
         }
 
-        /**
-         * Мониторинг временной шкалы для автопропуска
-         */
-        startTimelineMonitoring() {
-            this.stopTimelineMonitoring();
+        onPlayerStart() {
+            this.log('Плеер запущен', 'debug');
+            this.startTimelineCheck();
+        }
 
-            if (!this.settings.autoSkipEnabled) return;
+        onPlayerEnd() {
+            this.log('Плеер остановлен', 'debug');
+            this.stopTimelineCheck();
+        }
 
-            this.log('▶️ Запуск мониторинга автопропуска', 'debug');
+        onTimeUpdate(currentTime) {
+            if (!this.settings.autoSkipEnabled || !this.skipData || currentTime === undefined) {
+                return;
+            }
+
+            const episodeNumber = this.extractEpisodeNumber();
+            if (episodeNumber === null) {
+                return;
+            }
+
+            this.checkAndSkip(currentTime, episodeNumber);
+        }
+
+        startTimelineCheck() {
+            this.stopTimelineCheck();
             
             this.timelineCheckInterval = setInterval(() => {
                 try {
-                    const currentTime = this.getCurrentPlayerTime();
-                    if (currentTime !== null) {
-                        this.checkSkipPoints(currentTime);
+                    const video = document.querySelector('video');
+                    if (video && !video.paused) {
+                        this.onTimeUpdate(video.currentTime);
                     }
                 } catch (error) {
-                    this.log(`Ошибка мониторинга: ${error.message}`, 'debug');
+                    this.log(`Ошибка проверки времени: ${error.message}`, 'error');
                 }
             }, CONFIG.skip.checkInterval);
         }
 
-        stopTimelineMonitoring() {
+        stopTimelineCheck() {
             if (this.timelineCheckInterval) {
                 clearInterval(this.timelineCheckInterval);
                 this.timelineCheckInterval = null;
-                this.log('⏹️ Мониторинг автопропуска остановлен', 'debug');
             }
         }
 
-        /**
-         * Получение текущего времени плеера
-         */
-        getCurrentPlayerTime() {
-            try {
-                // Метод 1: Из Lampa Player API
-                if (this.currentPlayer && this.currentPlayer.currentTime !== undefined) {
-                    return this.currentPlayer.currentTime;
-                }
-
-                // Метод 2: Из HTML5 video элемента
-                const videoElement = this.currentVideoElement || document.querySelector('video');
-                if (videoElement && !isNaN(videoElement.currentTime)) {
-                    return videoElement.currentTime;
-                }
-
-                // Метод 3: Из глобального состояния Lampa
-                if (window.Lampa && window.Lampa.Player && window.Lampa.Player.currentTime) {
-                    return window.Lampa.Player.currentTime();
-                }
-
-                return null;
-            } catch (error) {
-                return null;
+        checkAndSkip(currentTime, episodeNumber) {
+            if (!this.skipData || !this.skipData[episodeNumber]) {
+                return;
             }
-        }
 
-        /**
-         * Проверка точек пропуска
-         */
-        checkSkipPoints(currentTime) {
-            if (!this.skipData || !this.currentEpisode) return;
-
-            const episodeData = this.skipData.episodes[this.currentEpisode];
-            if (!episodeData) return;
-
+            const episodeData = this.skipData[episodeNumber];
             const now = Date.now();
-            if (now - this.lastSkipTime < 5000) return; // Защита от спама
 
-            // Проверяем опенинг
-            if (episodeData.opening) {
-                const { start, end } = episodeData.opening;
-                if (currentTime >= start && currentTime <= end) {
-                    this.performSkip(end, 'опенинг');
-                    return;
-                }
+            // Проверяем интро
+            if (episodeData.intro && this.shouldSkip(currentTime, episodeData.intro, now)) {
+                this.performSkip(episodeData.intro.end, 'заставки');
             }
-
-            // Проверяем эндинг
-            if (episodeData.ending) {
-                const { start, end } = episodeData.ending;
-                if (currentTime >= start && currentTime <= end) {
-                    this.performSkip(end, 'эндинг');
-                    return;
-                }
+            // Проверяем аутро
+            else if (episodeData.outro && this.shouldSkip(currentTime, episodeData.outro, now)) {
+                this.performSkip(episodeData.outro.end, 'титров');
             }
         }
 
-        /**
-         * Выполнение пропуска
-         */
-        performSkip(targetTime, type) {
-            try {
-                this.log(`⏩ Пропуск ${type} до ${targetTime}с`, 'info');
-                
-                setTimeout(() => {
-                    // Метод 1: Через Lampa Player API
-                    if (this.currentPlayer && typeof this.currentPlayer.seek === 'function') {
-                        this.currentPlayer.seek(targetTime);
-                        this.log('✅ Пропуск через Lampa Player API', 'debug');
-                    }
-                    // Метод 2: Через HTML5 video
-                    else {
-                        const videoElement = this.currentVideoElement || document.querySelector('video');
-                        if (videoElement) {
-                            videoElement.currentTime = targetTime;
-                            this.log('✅ Пропуск через HTML5 video', 'debug');
-                        }
-                    }
+        shouldSkip(currentTime, skipData, now) {
+            return currentTime >= skipData.start && 
+                   currentTime <= skipData.end &&
+                   (now - this.lastSkipTime) > (this.settings.skipDelay * 2);
+        }
 
-                    this.lastSkipTime = Date.now();
-                    this.showSkipNotification('success', `⏩ Пропущен ${type}`);
-                    
-                }, this.settings.skipDelay);
+        performSkip(skipToTime, skipType) {
+            try {
+                const video = document.querySelector('video');
+                if (!video) {
+                    this.log('Видео элемент не найден для пропуска', 'warning');
+                    return;
+                }
+
+                video.currentTime = skipToTime;
+                this.lastSkipTime = Date.now();
+                
+                const message = `⏭️ Пропуск ${skipType}`;
+                this.log(message, 'info');
+                this.showSkipNotification('success', message);
 
             } catch (error) {
                 this.log(`Ошибка пропуска: ${error.message}`, 'error');
@@ -914,85 +1313,112 @@
         }
 
         /**
-         * Показ уведомлений
+         * ВСТРОЕННАЯ БАЗА ДАННЫХ С ВРЕМЕННЫМИ МЕТКАМИ
          */
+        getBuiltInData(title) {
+            const database = {
+                "Восхождение героя щита": {
+                    1: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    2: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    3: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    4: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    5: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } }
+                },
+                "Атака титанов": {
+                    1: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } },
+                    2: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } },
+                    3: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } }
+                },
+                "Клинок, рассекающий демонов": {
+                    1: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    2: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    3: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } }
+                },
+                "Моя геройская академия": {
+                    1: { intro: { start: 0, end: 90 }, outro: { start: 1300, end: 1420 } },
+                    2: { intro: { start: 0, end: 90 }, outro: { start: 1300, end: 1420 } },
+                    3: { intro: { start: 0, end: 90 }, outro: { start: 1300, end: 1420 } }
+                },
+                "Наруто": {
+                    1: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    2: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } },
+                    3: { intro: { start: 0, end: 90 }, outro: { start: 1320, end: 1440 } }
+                },
+                "Токийский гуль": {
+                    1: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } },
+                    2: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } },
+                    3: { intro: { start: 0, end: 85 }, outro: { start: 1300, end: 1420 } }
+                }
+            };
+
+            // Поиск по точному совпадению
+            if (database[title]) {
+                return database[title];
+            }
+
+            // Поиск по частичному совпадению
+            for (const [dbTitle, data] of Object.entries(database)) {
+                if (title.includes(dbTitle) || dbTitle.includes(title)) {
+                    this.log(`Найдено частичное совпадение: "${title}" -> "${dbTitle}"`, 'debug');
+                    return data;
+                }
+            }
+
+            return null;
+        }
+
         showSkipNotification(type, message) {
             if (!this.settings.showNotifications) return;
 
             try {
-                // Используем встроенную систему уведомлений Lampa
-                if (window.Lampa && window.Lampa.Noty) {
-                    window.Lampa.Noty.show(message);
+                if (typeof Lampa?.Noty === 'function') {
+                    Lampa.Noty.show(message);
+                } else if (typeof Lampa?.Toast === 'function') {
+                    Lampa.Toast.show(message);
                 } else {
-                    // Fallback: логирование
                     this.log(message, type);
                 }
             } catch (error) {
+                this.log(`Ошибка отображения уведомления: ${error.message}`, 'error');
                 this.log(message, type);
             }
         }
 
-        /**
-         * Диагностика системы
-         */
-        performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.6 ===', 'info');
-            this.log(`🔍 Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'info');
-            this.log(`🔍 Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'info');
-            this.log(`🔍 Lampa.Activity доступен: ${typeof Lampa?.Activity !== 'undefined'}`, 'info');
-            this.log(`🔍 Lampa.Listener доступен: ${typeof Lampa?.Listener !== 'undefined'}`, 'info');
-            
-            // Определяем WebOS
-            this.webOSMode = /webOS|Web0S/i.test(navigator.userAgent);
-            this.log(`WebOS обнаружен: ${this.webOSMode}`, 'info');
-            
-            // Текущая активность
-            const activity = Lampa.Activity?.active?.component || 'нет';
-            this.log(`🔍 Текущая активность: ${activity}`, 'info');
-            
-            // Количество video элементов
-            const videoCount = document.querySelectorAll('video').length;
-            this.log(`🔍 Найдено video элементов: ${videoCount}`, 'info');
-            this.lastVideoCount = videoCount;
-            
-            this.log('=== КОНЕЦ ДИАГНОСТИКИ ===', 'info');
-        }
-
-        /**
-         * Логирование с временными метками
-         */
-        log(message, level = 'debug') {
+        log(message, level = 'info') {
             if (!this.settings.debugEnabled && level === 'debug') return;
 
             const timestamp = new Date().toLocaleTimeString();
-            const levelEmojis = {
-                debug: '🔍',
-                info: 'ℹ️',
-                success: '✅',
-                warning: '⚠️',
-                error: '❌'
-            };
-
-            const emoji = levelEmojis[level] || 'ℹ️';
-            const logMessage = `[AnilibriaAutoSkip] ${timestamp} ${emoji} ${message}`;
-
-            if (level === 'error') {
-                console.error(logMessage);
-            } else if (level === 'warning') {
-                console.warn(logMessage);
-            } else {
-                console.log(logMessage);
+            const prefix = `[AnilibriaAutoSkip] ${timestamp}`;
+            
+            switch (level) {
+                case 'error':
+                    console.error(`${prefix} ❌ ${message}`);
+                    break;
+                case 'warning':
+                    console.warn(`${prefix} ⚠️ ${message}`);
+                    break;
+                case 'success':
+                    console.log(`${prefix} ✅ ${message}`);
+                    break;
+                case 'debug':
+                    console.log(`${prefix} 🔍 ${message}`);
+                    break;
+                default:
+                    console.log(`${prefix} ${message}`);
             }
+        }
+
+        destroy() {
+            this.log('Уничтожение плагина...', 'info');
+            this.stopTimelineCheck();
+            this.cache.clear();
+            this.isInitialized = false;
         }
     }
 
     // Инициализация плагина
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            new AnilibriaAutoSkipPlugin();
-        });
-    } else {
-        new AnilibriaAutoSkipPlugin();
+    if (typeof window !== 'undefined') {
+        window.AnilibriaAutoSkipPlugin = new AnilibriaAutoSkipPlugin();
     }
 
 })();
