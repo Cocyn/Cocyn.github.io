@@ -4,10 +4,10 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4.2.1',
+        version: '1.4.3',
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
-            proxies: ['https://corsproxy.io/?'],
+            proxies: ['https://proxy.cors.sh/', 'https://corsproxy.io/?'],
             timeout: 10000,
             retries: 5
         },
@@ -150,13 +150,18 @@
                 }
             }
 
-            const titlesToTry = [title, Lampa.Activity.active()?.movie?.original_title || title];
+            const titlesToTry = [
+                title,
+                Lampa.Activity.active()?.movie?.original_title || title,
+                title === 'Восхождение героя щита' ? 'Tate no Yuusha no Nariagari' : title,
+                title === 'Магия и мускулы' ? 'Mashle: Magic and Muscles' : title
+            ];
             for (const proxy of CONFIG.api.proxies) {
                 for (const searchTitle of titlesToTry) {
                     try {
                         const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(searchTitle)}`);
                         let searchResponse = await this.apiRequest(searchUrl, proxy);
-                        if (proxy.includes('corsproxy.io')) {
+                        if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
                             searchResponse = JSON.parse(searchResponse);
                         }
                         if (!searchResponse.list || searchResponse.list.length === 0) {
@@ -168,7 +173,7 @@
                         const animeId = searchResponse.list[0].id;
                         const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/releases/${animeId}`);
                         let titleResponse = await this.apiRequest(titleUrl, proxy);
-                        if (proxy.includes('corsproxy.io')) {
+                        if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
                             titleResponse = JSON.parse(titleResponse);
                         }
                         if (!titleResponse) {
@@ -190,7 +195,7 @@
                         }
                     } catch (error) {
                         this.log(`Ошибка с прокси ${proxy} для "${searchTitle}": ${error.message}`, 'error');
-                        if (error.message.includes('500') || error.message.includes('Failed to fetch')) {
+                        if (error.message.includes('403') || error.message.includes('Failed to fetch')) {
                             continue;
                         }
                         this.showSkipNotification('error', 'Ошибка связи с API');
@@ -203,7 +208,7 @@
         }
 
         buildProxyUrl(proxy, url) {
-            if (proxy.includes('corsproxy.io')) {
+            if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
                 return `${proxy}${encodeURIComponent(url)}`;
             }
             return `${proxy}${url}`;
@@ -214,12 +219,16 @@
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), CONFIG.api.timeout);
+                    const headers = {
+                        'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
+                        'Accept': 'application/json'
+                    };
+                    if (proxy.includes('proxy.cors.sh')) {
+                        headers['x-cors-api-key'] = 'YOUR_CORS_SH_API_KEY'; // Замените на ваш ключ
+                    }
                     const response = await fetch(url, {
                         signal: controller.signal,
-                        headers: {
-                            'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
-                            'Accept': 'application/json'
-                        }
+                        headers
                     });
                     clearTimeout(timeoutId);
                     if (response.status === 429) {
@@ -385,34 +394,3 @@
 
         sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        log(message, type = 'info') {
-            if (!this.settings.debugEnabled && type === 'debug') return;
-            const timestamp = new Date().toLocaleString('ru-RU');
-            const prefix = '[AnilibriaAutoSkip]';
-            switch (type) {
-                case 'success':
-                    console.log(`%c${prefix} ${message}`, 'color: #10b981');
-                    break;
-                case 'error':
-                    console.error(`%c${prefix} ${message}`, 'color: #ef4444');
-                    break;
-                case 'warning':
-                    console.warn(`%c${prefix} ${message}`, 'color: #f59e0b');
-                    break;
-                case 'info':
-                    console.info(`%c${prefix} ${message}`, 'color: #3b82f6');
-                    break;
-                case 'debug':
-                    console.debug(`%c${prefix} ${message}`, 'color: #6b7280');
-                    break;
-            }
-        }
-    }
-
-    const plugin = new AnilibriaAutoSkipPlugin();
-    if (typeof window !== 'undefined') {
-        window.AnilibriaAutoSkipPlugin = plugin;
-    }
-})();
