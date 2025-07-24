@@ -83,7 +83,7 @@
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.5 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.6 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -310,7 +310,7 @@
         }
 
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.5 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.6 ===', 'info');
             try {
                 this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
@@ -826,8 +826,14 @@
             try {
                 this.log('🔍 Поиск номера эпизода в DOM...', 'debug');
 
-                // Расширенные селекторы для различных версий Lampa
+                // Расширенные селекторы для различных версий Lampa (приоритет для реальных эпизодов)
                 const selectors = [
+                    // Приоритетные селекторы для lampa.mx (не таймер!)
+                    '.torrent .selector.focus:not(.player-panel__timeline)', // Исключаем таймер
+                    '.online .selector.focus:not(.player-panel__timeline)',
+                    '.files .selector.focus:not(.player-panel__timeline)',
+                    '.episodes .selector.focus:not(.player-panel__timeline)',
+                    
                     // Стандартные селекторы
                     '.series__episode.active',
                     '.episode-item.active',
@@ -837,22 +843,25 @@
                     '.episode-number',
                     '.ep-number',
                     
-                    // Селекторы для lampa.mx
+                    // Селекторы для lampa.mx (общие)
                     '.torrent-item.active',
                     '.torrent-item.focus',
                     '.item.active',
                     '.item.focus',
-                    '.selector.active',
-                    '.selector.focus',
+                    '.selector.active:not(.player-panel__timeline)', // Исключаем таймер
+                    '.selector.focus:not(.player-panel__timeline)', // Исключаем таймер
+                    
+                    // Селекторы эпизодов в плеере
                     '.player-series__episode.active',
                     '.player-episode.active',
                     '.episode.active',
                     '.season-episode.active',
                     
-                    // Селекторы для плеера
-                    '.player-panel .active',
-                    '.player-controls .active',
-                    '.video-controls .active',
+                    // Селекторы для breadcrumbs и навигации
+                    '.breadcrumb .active',
+                    '.navigation .current',
+                    '.tab.active',
+                    '.menu-item.active',
                     
                     // Общие селекторы
                     '.active[data-season]',
@@ -926,9 +935,17 @@
                             }
                         }
                         
-                        // Специальная обработка для .selector.focus - анализируем все дочерние элементы
-                        if (selector === '.selector.focus') {
-                            this.log(`🔍 Углубленный анализ .selector.focus элемента...`, 'debug');
+                        // Специальная обработка для .selector.focus - исключаем таймер плеера
+                        if (selector.includes('.selector.focus')) {
+                            // Проверяем, не является ли это элементом таймера плеера
+                            if (element.classList.contains('player-panel__timeline') || 
+                                element.closest('.player-panel__timeline') ||
+                                element.querySelector('.player-panel__timeline')) {
+                                this.log(`⏰ Пропускаем элемент таймера плеера`, 'debug');
+                                continue;
+                            }
+                            
+                            this.log(`🔍 Углубленный анализ .selector.focus элемента (НЕ таймер)...`, 'debug');
                             const result = this.deepAnalyzeElement(element);
                             if (result !== null) {
                                 this.log(`🎯 ГЛУБОКИЙ АНАЛИЗ НАШЕЛ: ${result}`, 'info');
