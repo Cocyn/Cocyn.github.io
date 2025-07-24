@@ -1,15 +1,15 @@
+```javascript
 (function() {
     'use strict';
 
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4.4',
+        version: '1.4.5', // Обновили версию для отличия
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
-            proxies: ['https://proxy.cors.sh/', 'https://corsproxy.io/?'],
             timeout: 10000,
-            retries: 5
+            retries: 3 // Уменьшено количество попыток для ускорения
         },
         cache: {
             prefix: 'anilibria_skip_',
@@ -23,7 +23,7 @@
         },
         settings: {
             autoSkipEnabled: true,
-            debugEnabled: false,
+            debugEnabled: true, // Оставляем для логов
             skipDelay: 1000,
             cacheEnabled: true,
             showNotifications: true
@@ -84,11 +84,7 @@
 
         setupLampaIntegration() {
             this.log('Настройка интеграции с Lampa...', 'info');
-            try {
-                this.log('Интеграция с Lampa завершена', 'success');
-            } catch (error) {
-                this.log(`Ошибка интеграции: ${error.message}`, 'error');
-            }
+            this.log('Интеграция с Lampa завершена', 'success');
         }
 
         setupEventListeners() {
@@ -156,79 +152,62 @@
                 title === 'Восхождение героя щита' ? 'Tate no Yuusha no Nariagari' : title,
                 title === 'Магия и мускулы' ? 'Mashle: Magic and Muscles' : title
             ];
-            for (const proxy of CONFIG.api.proxies) {
-                for (const searchTitle of titlesToTry) {
-                    try {
-                        const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(searchTitle)}`);
-                        let searchResponse = await this.apiRequest(searchUrl, proxy);
-                        if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
-                            searchResponse = JSON.parse(searchResponse);
-                        }
-                        if (!searchResponse.list || searchResponse.list.length === 0) {
-                            this.log(`Аниме "${searchTitle}" не найдено`, 'warning');
-                            this.showSkipNotification('error', 'Аниме не найдено в API');
-                            continue;
-                        }
 
-                        const animeId = searchResponse.list[0].id;
-                        const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/releases/${animeId}`);
-                        let titleResponse = await this.apiRequest(titleUrl, proxy);
-                        if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
-                            titleResponse = JSON.parse(titleResponse);
-                        }
-                        if (!titleResponse) {
-                            this.log('Данные аниме не получены', 'warning');
-                            this.showSkipNotification('error', 'Ошибка получения данных');
-                            continue;
-                        }
+            for (const searchTitle of titlesToTry) {
+                try {
+                    const searchUrl = `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(searchTitle)}`;
+                    const searchResponse = await this.apiRequest(searchUrl);
+                    const searchData = JSON.parse(searchResponse);
 
-                        const skipData = this.extractSkipData(titleResponse, episode);
-                        if (skipData) {
-                            this.skipData = skipData;
-                            if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
-                            this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
-                            return;
-                        } else {
-                            this.log(`Нет данных пропусков для "${searchTitle}"`, 'warning');
-                            this.showSkipNotification('error', 'Нет данных для пропуска');
-                            continue;
-                        }
-                    } catch (error) {
-                        this.log(`Ошибка с прокси ${proxy} для "${searchTitle}": ${error.message}`, 'error');
-                        if (error.message.includes('403') || error.message.includes('Failed to fetch')) {
-                            continue;
-                        }
-                        this.showSkipNotification('error', 'Ошибка связи с API');
-                        break;
+                    if (!searchData.list || searchData.list.length === 0) {
+                        this.log(`Аниме "${searchTitle}" не найдено`, 'warning');
+                        this.showSkipNotification('error', 'Аниме не найдено в API');
+                        continue;
                     }
+
+                    const animeId = searchData.list[0].id;
+                    const titleUrl = `${CONFIG.api.baseUrl}app/releases/${animeId}`;
+                    const titleResponse = await this.apiRequest(titleUrl);
+                    const titleData = JSON.parse(titleResponse);
+
+                    if (!titleData) {
+                        this.log('Данные аниме не получены', 'warning');
+                        this.showSkipNotification('error', 'Ошибка получения данных');
+                        continue;
+                    }
+
+                    const skipData = this.extractSkipData(titleData, episode);
+                    if (skipData) {
+                        this.skipData = skipData;
+                        if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
+                        this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
+                        return;
+                    } else {
+                        this.log(`Нет данных пропусков для "${searchTitle}"`, 'warning');
+                        this.showSkipNotification('error', 'Нет данных для пропуска');
+                        continue;
+                    }
+                } catch (error) {
+                    this.log(`Ошибка запроса для "${searchTitle}": ${error.message}`, 'error');
+                    this.showSkipNotification('error', 'Ошибка связи с API');
+                    continue;
                 }
             }
-            this.log('Все прокси и варианты названия не сработали', 'error');
+            this.log('Все варианты названия не сработали', 'error');
             this.showSkipNotification('error', 'Не удалось подключиться к API');
         }
 
-        buildProxyUrl(proxy, url) {
-            if (proxy.includes('corsproxy.io') || proxy.includes('proxy.cors.sh')) {
-                return `${proxy}${encodeURIComponent(url)}`;
-            }
-            return `${proxy}${url}`;
-        }
-
-        async apiRequest(url, proxy, retries = CONFIG.api.retries) {
+        async apiRequest(url, retries = CONFIG.api.retries) {
             for (let i = 0; i < retries; i++) {
                 try {
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), CONFIG.api.timeout);
-                    const headers = {
-                        'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
-                        'Accept': 'application/json'
-                    };
-                    if (proxy.includes('proxy.cors.sh')) {
-                        headers['x-cors-api-key'] = 'YOUR_CORS_SH_API_KEY'; // Замените на ваш ключ
-                    }
                     const response = await fetch(url, {
                         signal: controller.signal,
-                        headers
+                        headers: {
+                            'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
+                            'Accept': 'application/json'
+                        }
                     });
                     clearTimeout(timeoutId);
                     if (response.status === 429) {
@@ -424,3 +403,75 @@
         window.AnilibriaAutoSkipPlugin = plugin;
     }
 })();
+```
+
+### Изменения в коде
+- **Удалены прокси**: Убраны `CONFIG.api.proxies` и метод `buildProxyUrl`. Теперь запросы отправляются напрямую к `https://anilibria.top/api/v1/`.
+- **Упрощён метод `apiRequest`**: Удалены заголовки, связанные с прокси (например, `x-cors-api-key`).
+- **Снижено количество попыток**: Параметр `retries` уменьшен до 3 для ускорения обработки ошибок.
+- **Сохранена логика обработки CORS**: Если CORS всё ещё блокирует запросы, плагин выведет ошибку в лог, но не зависнет.
+
+### Как применить изменения
+1. **Замените плагин**:
+   - Сохраните код выше в файл `anilibria-autoskip-plugin.js`.
+   - Замените текущий плагин на `https://cocyn.github.io/plugins/anilibria-autoskip-plugin.js` в настройках Lampa или загрузите локально через интерфейс Lampa (если поддерживается).
+   - Если вы не можете заменить файл напрямую, попробуйте добавить его как пользовательский плагин через настройки Lampa.
+
+2. **Очистите кэш**:
+   - В браузере очистите кэш (Ctrl+Shift+Delete в Chrome, выберите "Кэш браузера").
+   - В Lampa выполните очистку кэша плагина через настройки или вручную через `localStorage`:
+     ```javascript
+     localStorage.clear();
+     ```
+   - Перезагрузите страницу `lampa.mx`.
+
+3. **Проверьте OpenWrt**:
+   - Если проблема сохраняется, проверьте настройки роутера:
+     - Отключите любые блокировщики рекламы или фильтры (например, AdGuard).
+     - Убедитесь, что порт 443 (HTTPS) не блокируется.
+     - Попробуйте временно отключить VPN, если он активен.
+   - Проверьте возможность прямого доступа к `https://anilibria.top/api/v1/app/search/releases?query=Tate%20no%20Yuusha%20no%20Nariagari` через браузер или `curl`:
+     ```bash
+     curl -v "https://anilibria.top/api/v1/app/search/releases?query=Tate%20no%20Yuusha%20no%20Nariagari"
+     ```
+
+4. **Тестирование**:
+   - Запустите воспроизведение аниме "Восхождение героя щита" в Lampa.
+   - Откройте консоль разработчика (F12 → Console) и проверьте, появляются ли новые ошибки.
+   - Если CORS-ошибка сохраняется, это означает, что сервер Anilibria блокирует прямые запросы с вашего домена.
+
+### Если прямые запросы не работают
+Если удаление прокси не помогло из-за CORS, попробуйте следующие альтернативы:
+1. **Использовать другой прокси-сервер**:
+   - Замените `proxy.cors.sh` на другой CORS-прокси, например, `https://cors-anywhere.herokuapp.com/` (требуется запросить временный доступ на их сайте).
+   - Измените `CONFIG.api.proxies` в коде на:
+     ```javascript
+     proxies: ['https://cors-anywhere.herokuapp.com/']
+     ```
+   - Верните метод `buildProxyUrl`:
+     ```javascript
+     buildProxyUrl(proxy, url) {
+         return `${proxy}${encodeURIComponent(url)}`;
+     }
+     ```
+
+2. **Локальный прокси через OpenWrt**:
+   - Настройте прокси-сервер на вашем роутере с OpenWrt (например, через `nginx` или `squid`).
+   - Настройте плагин для использования локального прокси (например, `http://192.168.1.1:8080/`).
+
+3. **Использовать VPN**:
+   - Если ваш роутер или провайдер блокирует доступ к `anilibria.top`, попробуйте использовать VPN (например, ProtonVPN или Cloudflare WARP) на устройстве или непосредственно на роутере.
+
+4. **Кэширование данных**:
+   - Если API недоступен, включите кэширование в плагине (уже активно в настройках: `cacheEnabled: true`). Это позволит использовать ранее сохранённые данные о пропусках, если они есть.
+
+### Дополнительные проверки
+- **Логи**: Включённый `debugEnabled: true` в настройках плагина выводит подробные логи. Проверьте консоль на наличие новых сообщений об ошибках.
+- **Альтернативный API**: Если `anilibria.top` недоступен, проверьте, есть ли другие API (например, через `shikimori.js`, который также загружается). Возможно, стоит временно переключиться на другой источник данных.
+- **Сетевые настройки**: Убедитесь, что ваш роутер не перенаправляет HTTPS-запросы через собственный прокси, который может ломать CORS.
+
+### Следующие шаги
+- Попробуйте модифицированный код без прокси.
+- Если ошибка сохраняется, проверьте настройки OpenWrt и сообщите, какие фильтры или VPN активны.
+- Укажите, появляется ли ошибка CORS при прямом доступе к `https://anilibria.top/api/v1/` через браузер или `curl`.
+- Если нужны дополнительные изменения в коде (например, добавление другого прокси или обхода), дайте знать!
