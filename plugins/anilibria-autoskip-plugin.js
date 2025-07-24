@@ -1,31 +1,19 @@
 (function() {
     'use strict';
 
-    /**
-     * Плагин автоматического пропуска заставок и концовок аниме для Lampa
-     * Использует API Anilibria (v1) с несколькими прокси для обхода CORS
-     * Версия: 1.4.0
-     * Поддерживает: Web, WebOS
-     */
-
-    // Конфигурация плагина
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4.0',
+        version: '1.4.1',
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
-            proxies: [
-                'https://cors-anywhere.herokuapp.com/',
-                'https://corsproxy.io/?',
-                'https://api.allorigins.win/get?url='
-            ],
+            proxies: ['https://api.allorigins.win/get?url='],
             timeout: 10000,
             retries: 5
         },
         cache: {
             prefix: 'anilibria_skip_',
-            expiry: 24 * 60 * 60 * 1000, // 24 часа
+            expiry: 24 * 60 * 60 * 1000,
             maxSize: 50
         },
         skip: {
@@ -42,7 +30,6 @@
         }
     };
 
-    // Проверка Lampa API
     if (typeof Lampa === 'undefined') {
         console.warn('[AnilibriaAutoSkip] Lampa API не найден');
         return;
@@ -58,7 +45,6 @@
             this.timelineCheckInterval = null;
             this.lastSkipTime = 0;
             this.isInitialized = false;
-
             this.init();
         }
 
@@ -80,9 +66,7 @@
             this.log('Загрузка настроек...', 'info');
             try {
                 const stored = Lampa.Storage.get(`${CONFIG.id}_settings`);
-                if (stored) {
-                    this.settings = {...this.settings, ...stored};
-                }
+                if (stored) this.settings = {...this.settings, ...stored};
                 this.log(`Настройки загружены: ${JSON.stringify(this.settings)}`, 'debug');
             } catch (error) {
                 this.log(`Ошибка загрузки настроек: ${error.message}`, 'warning');
@@ -105,66 +89,6 @@
             } catch (error) {
                 this.log(`Ошибка интеграции: ${error.message}`, 'error');
             }
-        }
-
-        createSettingsHTML() {
-            return `
-                <div class="settings-param selector" data-type="toggle" data-name="autoSkipEnabled">
-                    <div class="settings-param__name">Автоматический пропуск</div>
-                    <div class="settings-param__value">
-                        <div class="settings-param__descr">Пропускать интро и аутро</div>
-                    </div>
-                </div>
-                <div class="settings-param selector" data-type="toggle" data-name="debugEnabled">
-                    <div class="settings-param__name">Отладочные логи</div>
-                    <div class="settings-param__value">
-                        <div class="settings-param__descr">Подробные логи в консоли</div>
-                    </div>
-                </div>
-                <div class="settings-param selector" data-type="slider" data-name="skipDelay" data-min="0" data-max="5000" data-step="500">
-                    <div class="settings-param__name">Задержка пропуска (мс)</div>
-                    <div class="settings-param__value">
-                        <div class="settings-param__descr">Задержка перед пропуском</div>
-                    </div>
-                </div>
-                <div class="settings-param selector" data-type="toggle" data-name="cacheEnabled">
-                    <div class="settings-param__name">Кэширование</div>
-                    <div class="settings-param__value">
-                        <div class="settings-param__descr">Сохранять данные пропусков</div>
-                    </div>
-                </div>
-                <div class="settings-param selector" data-type="button" data-name="clearCache">
-                    <div class="settings-param__name">Очистить кэш</div>
-                    <div class="settings-param__value">
-                        <div class="settings-param__descr">Удалить сохранённые данные</div>
-                    </div>
-                </div>
-            `;
-        }
-
-        bindSettingsEvents(container) {
-            const toggles = container.querySelectorAll('[data-type="toggle"]');
-            const buttons = container.querySelectorAll('[data-type="button"]');
-
-            toggles.forEach(toggle => {
-                const paramName = toggle.dataset.name;
-                toggle.classList.toggle('active', this.settings[paramName]);
-                toggle.addEventListener('click', () => {
-                    this.settings[paramName] = !this.settings[paramName];
-                    toggle.classList.toggle('active', this.settings[paramName]);
-                    this.saveSettings();
-                    this.log(`Настройка ${paramName} изменена на ${this.settings[paramName]}`, 'info');
-                });
-            });
-
-            buttons.forEach(button => {
-                if (button.dataset.name === 'clearCache') {
-                    button.addEventListener('click', () => {
-                        this.clearCache();
-                        this.log('Кэш очищен', 'info');
-                    });
-                }
-            });
         }
 
         setupEventListeners() {
@@ -197,7 +121,7 @@
             try {
                 const activity = Lampa.Activity.active();
                 if (!activity) return;
-                const title = activity.title ? activity.title() : activity.movie?.title || activity.movie?.name;
+                const title = activity.movie?.title || activity.movie?.name || activity.movie?.original_title || activity.movie?.original_name;
                 const episode = activity.episode ?? Lampa.Player?.episode?.number;
                 if (title && title !== this.currentTitle) this.onTitleChange(title, episode);
             } catch (error) {
@@ -265,7 +189,7 @@
                 } catch (error) {
                     this.log(`Ошибка с прокси ${proxy}: ${error.message}`, 'error');
                     if (error.message.includes('403') || error.message.includes('Failed to fetch')) {
-                        continue; // Переключение на следующий прокси
+                        continue;
                     }
                     this.showSkipNotification('error', 'Ошибка связи с API');
                     break;
