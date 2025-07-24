@@ -356,41 +356,29 @@
         }
 
         /**
-         * Выполнение запроса к API с повторными попытками
+         * Выполнение запроса к API через Lampa.Reguest
          */
-        async apiRequest(url, retries = CONFIG.api.retries) {
-            for (let i = 0; i < retries; i++) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), CONFIG.api.timeout);
-
-                    const response = await fetch(url, {
-                        signal: controller.signal,
-                        headers: {
-                            'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
-                            'Accept': 'application/json'
-                        }
-                    });
-
-                    clearTimeout(timeoutId);
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        apiRequest(url, retries = CONFIG.api.retries) {
+            return new Promise((resolve, reject) => {
+                const network = new Lampa.Reguest();
+                network.timeout(CONFIG.api.timeout);
+                
+                // Используем прокси для обхода CORS
+                const proxyUrl = 'https://cors.nb557.workers.dev:8443/';
+                const finalUrl = proxyUrl + url;
+                
+                network.silent(finalUrl, (data) => {
+                    resolve(data);
+                }, (error) => {
+                    this.log(`API request failed: ${network.errorDecode(error)}`, 'error');
+                    reject(new Error(network.errorDecode(error)));
+                }, false, {
+                    headers: {
+                        'User-Agent': `Lampa/${CONFIG.name}/${CONFIG.version}`,
+                        'Accept': 'application/json'
                     }
-
-                    return await response.json();
-                    
-                } catch (error) {
-                    this.log(`API request attempt ${i + 1} failed: ${error.message}`, 'debug');
-                    
-                    if (i === retries - 1) {
-                        throw error;
-                    }
-                    
-                    // Экспоненциальная задержка между попытками
-                    await this.sleep(Math.pow(2, i) * 1000);
-                }
-            }
+                });
+            });
         }
 
         /**
