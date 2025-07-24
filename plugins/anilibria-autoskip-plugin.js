@@ -1,9 +1,9 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.2
+ * Anilibria Auto-Skip Plugin v1.9.5
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
- * ИСПРАВЛЕНИЯ v1.9.2:
+ * ИСПРАВЛЕНИЯ v1.9.5:
  * - Исправлено определение номера эпизода из различных источников
  * - Улучшена логика сравнения контента
  * - Добавлены дополнительные методы извлечения номера серии
@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.3', // Кардинально улучшено определение эпизодов для lampa.mx
+        version: '1.9.5', // Кардинально улучшено определение эпизодов для lampa.mx
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -76,7 +76,7 @@
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.3...', 'info');
+                this.log('Инициализация плагина v1.9.5...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
