@@ -1,5 +1,5 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.0
+ * Anilibria Auto-Skip Plugin v1.9.1
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
@@ -74,6 +74,7 @@
             this.lastVideoCount = 0;
             this.lastDataRefresh = 0;
             this.lastActivityCheck = null;
+            this.isRecheckInProgress = false;
             this.init();
         }
 
@@ -156,20 +157,22 @@
                     }
                 });
 
-                // Дополнительные события для отслеживания смены контента
+                // Дополнительные события для отслеживания смены контента (адаптированы для WebOS)
                 Lampa.Listener.follow('content', (e) => {
                     this.log(`Событие контента: ${e.type}`, 'debug');
                     if (e.type === 'change' || e.type === 'start') {
-                        setTimeout(() => this.forceContentRecheck(), 1000);
+                        const delay = this.webOSMode ? 3000 : 1000;
+                        setTimeout(() => this.forceContentRecheck(), delay);
                     }
                 });
 
-                // Отслеживание событий сериалов
+                // Отслеживание событий сериалов (оптимизировано для WebOS)
                 Lampa.Listener.follow('series', (e) => {
                     this.log(`Событие сериала: ${e.type}`, 'debug');
                     if (e.type === 'episode' || e.type === 'season') {
                         this.log('Обнаружена смена эпизода/сезона', 'info');
-                        setTimeout(() => this.forceContentRecheck(), 1500);
+                        const delay = this.webOSMode ? 5000 : 1500;
+                        setTimeout(() => this.forceContentRecheck(), delay);
                     }
                 });
 
@@ -187,6 +190,15 @@
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Activity доступен: ${typeof Lampa?.Activity !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Listener доступен: ${typeof Lampa?.Listener !== 'undefined'}`, 'debug');
+                
+                // WebOS диагностика
+                const isWebOS = navigator.userAgent.includes('webOS') || navigator.userAgent.includes('LG');
+                this.log(`WebOS обнаружен: ${isWebOS}`, 'info');
+                
+                if (isWebOS) {
+                    this.log('WebOS оптимизация активирована', 'info');
+                    this.webOSMode = true;
+                }
                 
                 // Проверяем текущую активность
                 if (typeof Lampa?.Activity?.active === 'function') {
@@ -212,50 +224,65 @@
 
         startActivityMonitoring() {
             this.log('Запуск мониторинга активности...', 'info');
-            setInterval(() => this.checkCurrentActivity(), 2000);
+            
+            // Адаптируем интервалы для WebOS
+            const monitoringInterval = this.webOSMode ? 4000 : 2000;
+            setInterval(() => this.checkCurrentActivity(), monitoringInterval);
             
             // Добавляем наблюдатель за изменениями в DOM
             this.setupDOMObserver();
         }
 
         setupDOMObserver() {
-            if (typeof MutationObserver === 'undefined') return;
+            // Проверяем поддержку MutationObserver (может быть ограничена на WebOS)
+            if (typeof MutationObserver === 'undefined') {
+                this.log('MutationObserver не поддерживается, используем fallback', 'debug');
+                return;
+            }
+            
+            let lastMutationTime = 0;
+            const mutationThrottle = 3000; // 3 секунды между обработками
             
             const observer = new MutationObserver((mutations) => {
+                const now = Date.now();
+                if (now - lastMutationTime < mutationThrottle) {
+                    return; // Пропускаем слишком частые изменения
+                }
+                
+                let hasVideoChanges = false;
+                
                 mutations.forEach((mutation) => {
-                    // Отслеживаем добавление новых video элементов
+                    // Отслеживаем только критические изменения
                     if (mutation.type === 'childList') {
                         mutation.addedNodes.forEach(node => {
                             if (node.nodeType === 1) { // Element node
                                 if (node.tagName === 'VIDEO') {
                                     this.log('Обнаружен новый video элемент через MutationObserver', 'debug');
-                                    setTimeout(() => this.forceContentRecheck(), 2000);
+                                    hasVideoChanges = true;
                                 } else if (node.querySelector && node.querySelector('video')) {
                                     this.log('Обнаружен контейнер с video элементом', 'debug');
-                                    setTimeout(() => this.forceContentRecheck(), 2000);
+                                    hasVideoChanges = true;
                                 }
                             }
                         });
                     }
-                    
-                    // Отслеживаем изменения атрибутов src у video
-                    if (mutation.type === 'attributes' && 
-                        mutation.target.tagName === 'VIDEO' && 
-                        mutation.attributeName === 'src') {
-                        this.log('Обнаружена смена src у video элемента', 'debug');
-                        setTimeout(() => this.forceContentRecheck(), 1000);
-                    }
                 });
+                
+                if (hasVideoChanges) {
+                    lastMutationTime = now;
+                    // Увеличиваем задержку для WebOS
+                    setTimeout(() => this.forceContentRecheck(), 4000);
+                }
             });
             
-            observer.observe(document.body, {
+            // Ограничиваем область наблюдения для производительности на WebOS
+            const playerContainer = document.querySelector('.player') || document.body;
+            observer.observe(playerContainer, {
                 childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['src']
+                subtree: true
             });
             
-            this.log('DOM Observer настроен для отслеживания изменений видео', 'debug');
+            this.log('DOM Observer настроен для WebOS (оптимизированный)', 'debug');
         }
 
         checkCurrentActivity() {
@@ -302,6 +329,13 @@
         }
 
         async forceContentRecheck() {
+            // Предотвращаем множественные одновременные перепроверки
+            if (this.isRecheckInProgress) {
+                this.log('Перепроверка уже выполняется, пропускаем', 'debug');
+                return;
+            }
+            
+            this.isRecheckInProgress = true;
             this.log('Принудительная перепроверка контента при смене видео...', 'info');
             
             try {
@@ -317,11 +351,15 @@
                     
                     this.log(`Сравнение контента: "${oldTitle}" ep.${oldEpisode} vs "${newTitle}" ep.${newEpisode}`, 'debug');
                     
-                    // Если контент изменился ИЛИ это тот же контент но видео новое
-                    if (newTitle !== oldTitle || newEpisode !== oldEpisode || this.isNewVideoDetected()) {
+                    // Более строгая проверка изменения контента
+                    const titleChanged = newTitle && (newTitle !== oldTitle);
+                    const episodeChanged = newEpisode && (newEpisode !== oldEpisode);
+                    const isNewVideo = this.isNewVideoDetected();
+                    
+                    if (titleChanged || episodeChanged || (isNewVideo && !this.skipData)) {
                         this.log(`Обнаружена смена контента: "${newTitle}" эпизод ${newEpisode}`, 'info');
                         
-                        // Полностью сбрасываем состояние
+                        // Полностью сбрасываем состояние только при реальной смене
                         this.currentTitle = null;
                         this.currentEpisode = null;
                         this.skipData = null;
@@ -331,10 +369,17 @@
                         if (newTitle) {
                             await this.onTitleChange(newTitle, newEpisode);
                         }
+                    } else {
+                        this.log('Контент не изменился, пропускаем обновление', 'debug');
                     }
                 }
             } catch (error) {
                 this.log(`Ошибка принудительной перепроверки: ${error.message}`, 'error');
+            } finally {
+                // Освобождаем блокировку через некоторое время
+                setTimeout(() => {
+                    this.isRecheckInProgress = false;
+                }, 2000);
             }
         }
 
