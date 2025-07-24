@@ -3,8 +3,8 @@
 
     /**
      * Плагин автоматического пропуска заставок и концовок аниме для Lampa
-     * Использует API Anilibria с несколькими прокси для обхода CORS
-     * Версия: 1.3.0
+     * Использует API Anilibria (v1) с несколькими прокси для обхода CORS
+     * Версия: 1.4.0
      * Поддерживает: Web, WebOS
      */
 
@@ -12,9 +12,9 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.3.0',
+        version: '1.4.0',
         api: {
-            baseUrl: 'https://api.anilibria.tv/v3/',
+            baseUrl: 'https://anilibria.top/api/v1/',
             proxies: [
                 'https://cors-anywhere.herokuapp.com/',
                 'https://corsproxy.io/?',
@@ -228,30 +228,30 @@
 
             for (const proxy of CONFIG.api.proxies) {
                 try {
-                    const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}title/search?search=${encodeURIComponent(title)}&limit=5`);
+                    const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(title)}`);
                     let searchResponse = await this.apiRequest(searchUrl, proxy);
                     if (proxy.includes('allorigins.win')) {
                         searchResponse = JSON.parse(searchResponse.contents);
                     }
-                    if (!searchResponse.data || searchResponse.data.length === 0) {
+                    if (!searchResponse.list || searchResponse.list.length === 0) {
                         this.log(`Аниме "${title}" не найдено`, 'warning');
                         this.showSkipNotification('error', 'Аниме не найдено в API');
                         continue;
                     }
 
-                    const animeId = searchResponse.data[0].id;
-                    const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}title?id=${animeId}`);
+                    const animeId = searchResponse.list[0].id;
+                    const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/releases/${animeId}`);
                     let titleResponse = await this.apiRequest(titleUrl, proxy);
                     if (proxy.includes('allorigins.win')) {
                         titleResponse = JSON.parse(titleResponse.contents);
                     }
-                    if (!titleResponse.data) {
+                    if (!titleResponse) {
                         this.log('Данные аниме не получены', 'warning');
                         this.showSkipNotification('error', 'Ошибка получения данных');
                         continue;
                     }
 
-                    const skipData = this.extractSkipData(titleResponse.data, episode);
+                    const skipData = this.extractSkipData(titleResponse, episode);
                     if (skipData) {
                         this.skipData = skipData;
                         if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
