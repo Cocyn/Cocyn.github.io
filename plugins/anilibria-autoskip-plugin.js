@@ -4,10 +4,10 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.4.1',
+        version: '1.4.2',
         api: {
             baseUrl: 'https://anilibria.top/api/v1/',
-            proxies: ['https://api.allorigins.win/get?url='],
+            proxies: ['https://corsproxy.io/?'],
             timeout: 10000,
             retries: 5
         },
@@ -150,57 +150,60 @@
                 }
             }
 
+            const titlesToTry = [title, Lampa.Activity.active()?.movie?.original_title || title];
             for (const proxy of CONFIG.api.proxies) {
-                try {
-                    const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(title)}`);
-                    let searchResponse = await this.apiRequest(searchUrl, proxy);
-                    if (proxy.includes('allorigins.win')) {
-                        searchResponse = JSON.parse(searchResponse.contents);
-                    }
-                    if (!searchResponse.list || searchResponse.list.length === 0) {
-                        this.log(`Аниме "${title}" не найдено`, 'warning');
-                        this.showSkipNotification('error', 'Аниме не найдено в API');
-                        continue;
-                    }
+                for (const searchTitle of titlesToTry) {
+                    try {
+                        const searchUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/search/releases?query=${encodeURIComponent(searchTitle)}`);
+                        let searchResponse = await this.apiRequest(searchUrl, proxy);
+                        if (proxy.includes('corsproxy.io')) {
+                            searchResponse = JSON.parse(searchResponse);
+                        }
+                        if (!searchResponse.list || searchResponse.list.length === 0) {
+                            this.log(`Аниме "${searchTitle}" не найдено`, 'warning');
+                            this.showSkipNotification('error', 'Аниме не найдено в API');
+                            continue;
+                        }
 
-                    const animeId = searchResponse.list[0].id;
-                    const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/releases/${animeId}`);
-                    let titleResponse = await this.apiRequest(titleUrl, proxy);
-                    if (proxy.includes('allorigins.win')) {
-                        titleResponse = JSON.parse(titleResponse.contents);
-                    }
-                    if (!titleResponse) {
-                        this.log('Данные аниме не получены', 'warning');
-                        this.showSkipNotification('error', 'Ошибка получения данных');
-                        continue;
-                    }
+                        const animeId = searchResponse.list[0].id;
+                        const titleUrl = this.buildProxyUrl(proxy, `${CONFIG.api.baseUrl}app/releases/${animeId}`);
+                        let titleResponse = await this.apiRequest(titleUrl, proxy);
+                        if (proxy.includes('corsproxy.io')) {
+                            titleResponse = JSON.parse(titleResponse);
+                        }
+                        if (!titleResponse) {
+                            this.log('Данные аниме не получены', 'warning');
+                            this.showSkipNotification('error', 'Ошибка получения данных');
+                            continue;
+                        }
 
-                    const skipData = this.extractSkipData(titleResponse, episode);
-                    if (skipData) {
-                        this.skipData = skipData;
-                        if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
-                        this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
-                        return;
-                    } else {
-                        this.log(`Нет данных пропусков для "${title}"`, 'warning');
-                        this.showSkipNotification('error', 'Нет данных для пропуска');
-                        continue;
+                        const skipData = this.extractSkipData(titleResponse, episode);
+                        if (skipData) {
+                            this.skipData = skipData;
+                            if (this.settings.cacheEnabled) this.saveToCache(cacheKey, skipData);
+                            this.log(`Данные пропусков: ${this.formatSkipData(skipData)}`, 'success');
+                            return;
+                        } else {
+                            this.log(`Нет данных пропусков для "${searchTitle}"`, 'warning');
+                            this.showSkipNotification('error', 'Нет данных для пропуска');
+                            continue;
+                        }
+                    } catch (error) {
+                        this.log(`Ошибка с прокси ${proxy} для "${searchTitle}": ${error.message}`, 'error');
+                        if (error.message.includes('500') || error.message.includes('Failed to fetch')) {
+                            continue;
+                        }
+                        this.showSkipNotification('error', 'Ошибка связи с API');
+                        break;
                     }
-                } catch (error) {
-                    this.log(`Ошибка с прокси ${proxy}: ${error.message}`, 'error');
-                    if (error.message.includes('403') || error.message.includes('Failed to fetch')) {
-                        continue;
-                    }
-                    this.showSkipNotification('error', 'Ошибка связи с API');
-                    break;
                 }
             }
-            this.log('Все прокси не сработали', 'error');
+            this.log('Все прокси и варианты названия не сработали', 'error');
             this.showSkipNotification('error', 'Не удалось подключиться к API');
         }
 
         buildProxyUrl(proxy, url) {
-            if (proxy.includes('allorigins.win')) {
+            if (proxy.includes('corsproxy.io')) {
                 return `${proxy}${encodeURIComponent(url)}`;
             }
             return `${proxy}${url}`;
@@ -224,7 +227,7 @@
                         continue;
                     }
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    return await response.json();
+                    return await response.text();
                 } catch (error) {
                     this.log(`Попытка ${i + 1} не удалась: ${error.message}`, 'debug');
                     if (i === retries - 1) throw error;
