@@ -83,7 +83,7 @@
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.4 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.5 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -310,7 +310,7 @@
         }
 
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.4 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.5 ===', 'info');
             try {
                 this.log(`Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'debug');
                 this.log(`Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'debug');
@@ -551,7 +551,16 @@
                 const videoElements = document.querySelectorAll('video');
                 if (videoElements.length > 0 && this.currentTitle) {
                     this.log('🎯 FALLBACK: Предполагаем 1-й эпизод, так как видео активно', 'info');
+                    this.currentEpisode = 1; // Сохраняем для дальнейшего использования
                     this.showSkipNotification('info', '🔍 Установлен эпизод 1 (автоопределение)');
+                    return 1;
+                }
+                
+                // Ультра-FALLBACK: Если есть название аниме, устанавливаем эпизод 1
+                if (this.currentTitle) {
+                    this.log('🚨 УЛЬТРА-FALLBACK: Устанавливаем эпизод 1 для аниме', 'warning');
+                    this.currentEpisode = 1; 
+                    this.showSkipNotification('warning', '⚠️ Эпизод установлен принудительно: 1');
                     return 1;
                 }
                 
@@ -877,6 +886,12 @@
                         // Проверяем текстовое содержимое с более точными регулярными выражениями
                         const text = (element.textContent || element.innerText || '').trim();
                         if (text) {
+                            // Исключаем временные метки (00:02:03, 01:23:45, etc.)
+                            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+                                this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
+                                continue;
+                            }
+                            
                             const patterns = [
                                 /^(\d+)$/, // Только цифра
                                 /^(\d+)\s*серия/i, // "1 серия"
@@ -964,6 +979,12 @@
                 const text = (child.textContent || child.innerText || '').trim();
                 if (text) {
                     this.log(`🔍 Анализируем текст: "${text}"`, 'debug');
+                    
+                    // Исключаем временные метки (00:02:03, 01:23:45, etc.)
+                    if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(text)) {
+                        this.log(`⏰ Пропускаем временную метку: "${text}"`, 'debug');
+                        continue;
+                    }
                     
                     const patterns = [
                         /^(\d+)$/, // Только цифра
