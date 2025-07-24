@@ -1,14 +1,14 @@
 /**
- * Anilibria Auto-Skip Plugin v1.9.5
+ * Anilibria Auto-Skip Plugin v1.9.6
  * 
  * Плагин для автоматического пропуска заставок и титров в аниме от Anilibria.
  * 
- * ИСПРАВЛЕНИЯ v1.9.5:
- * - Исправлена проблема с переключением на 1 эпизод
- * - Улучшена стабильность определения номеров эпизодов
- * - Сохранена рабочая логика извлечения из .selector.focus
- * - Оптимизирована работа с событиями плеера
- * - Улучшена совместимость с lampa.mx
+ * ИСПРАВЛЕНИЯ v1.9.6:
+ * - Исправлен спам логов в DOM Observer (защита от избыточных срабатываний)
+ * - Улучшена производительность мониторинга активности
+ * - Добавлены тайм-ауты для предотвращения бесконечных циклов
+ * - Оптимизирована логика обнаружения video элементов
+ * - Сохранена стабильная работа определения эпизодов
  * 
  * URL: http://localhost:5000/anilibria-autoskip-plugin.js
  */
@@ -18,7 +18,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip',
-        version: '1.9.5', // Стабильная версия с корректным определением эпизодов
+        version: '1.9.6', // Исправлена производительность DOM Observer
         api: {
             endpoints: [
                 'https://anilibria.tv/api/v2/',
@@ -77,14 +77,14 @@
 
         init() {
             try {
-                this.log('Инициализация плагина v1.9.5...', 'info');
+                this.log('Инициализация плагина v1.9.6...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupEventListeners();
                 this.startActivityMonitoring();
                 this.isInitialized = true;
                 this.log('Плагин успешно инициализирован', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.5 готов к работе!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v1.9.6 готов к работе!');
                 
                 this.performDiagnostics();
             } catch (error) {
@@ -477,43 +477,54 @@
         startActivityMonitoring() {
             this.log('Запуск мониторинга активности...', 'info');
             
+            // Защита от спама - отслеживаем время последнего срабатывания
+            this.lastDOMCheck = 0;
+            this.lastLogTime = 0;
+            
             // DOM Observer для отслеживания изменений
             if (typeof MutationObserver !== 'undefined') {
                 this.domObserver = new MutationObserver((mutations) => {
+                    const now = Date.now();
+                    
+                    // Защита от спама - не более одной проверки в секунду
+                    if (now - this.lastDOMCheck < 1000) return;
+                    this.lastDOMCheck = now;
+                    
                     let shouldRecheck = false;
+                    let hasNewVideo = false;
                     
                     for (const mutation of mutations) {
-                        // Проверяем добавление новых video элементов
                         if (mutation.type === 'childList') {
                             for (const node of mutation.addedNodes) {
                                 if (node.nodeType === 1) { // Element node
-                                    if (node.tagName === 'VIDEO' || node.querySelector('video')) {
-                                        this.log('🔍 Обнаружен новый video элемент через MutationObserver', 'debug');
+                                    // Только реальные video элементы
+                                    if (node.tagName === 'VIDEO') {
+                                        hasNewVideo = true;
                                         shouldRecheck = true;
                                         break;
                                     }
-                                    
-                                    // Проверяем контейнеры с video
-                                    if (node.classList && (
-                                        node.classList.contains('player') ||
-                                        node.classList.contains('video-container') ||
-                                        node.classList.contains('selector')
-                                    )) {
-                                        this.log('🔍 Обнаружен контейнер с video элементом', 'debug');
+                                    // Или контейнеры, которые содержат video
+                                    else if (node.querySelector && node.querySelector('video')) {
+                                        hasNewVideo = true;
                                         shouldRecheck = true;
+                                        break;
                                     }
                                 }
                             }
                         }
                     }
                     
-                    if (shouldRecheck) {
+                    if (shouldRecheck && hasNewVideo) {
                         // Проверяем изменение количества video элементов
                         const currentVideoCount = document.querySelectorAll('video').length;
                         if (currentVideoCount !== this.lastVideoCount) {
-                            this.log(`🔍 Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                            // Ограничиваем логирование - не чаще одного раза в 3 секунды
+                            if (now - this.lastLogTime > 3000) {
+                                this.log(`🔍 Обнаружено изменение количества видео элементов: ${currentVideoCount}`, 'debug');
+                                this.lastLogTime = now;
+                            }
+                            
                             this.lastVideoCount = currentVideoCount;
-                            this.log('🔍 Новое видео обнаружено, принудительная перепроверка контента', 'info');
                             setTimeout(() => this.forceContentRecheck(), 2000);
                         }
                     }
@@ -879,7 +890,7 @@
          * Диагностика системы
          */
         performDiagnostics() {
-            this.log('=== ДИАГНОСТИКА LAMPA v1.9.5 ===', 'info');
+            this.log('=== ДИАГНОСТИКА LAMPA v1.9.6 ===', 'info');
             this.log(`🔍 Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'info');
             this.log(`🔍 Lampa.Player доступен: ${typeof Lampa?.Player !== 'undefined'}`, 'info');
             this.log(`🔍 Lampa.Activity доступен: ${typeof Lampa?.Activity !== 'undefined'}`, 'info');
