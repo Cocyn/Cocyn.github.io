@@ -19,7 +19,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip Universal',
-        version: '2.0.1',
+        version: '2.0.2',
         api: {
             endpoints: [
                 'https://api.anilibria.tv/v3/',
@@ -164,6 +164,10 @@
             try {
                 const stored = Lampa.Storage.get(`${CONFIG.id}_settings`);
                 if (stored) this.settings = {...this.settings, ...stored};
+                
+                // Принудительно отключаем debug в новой версии
+                this.settings.debugEnabled = false;
+                
                 this.log(`🔍 Настройки загружены: ${JSON.stringify(this.settings)}`, 'debug');
             } catch (error) {
                 this.log(`⚠️ Ошибка загрузки настроек: ${error.message}`, 'warning');
@@ -553,6 +557,16 @@
                 foundEpisode = this.extractEpisodeFromURL();
             }
 
+            // 4. Если всё ещё не нашли, пытаемся определить по позиции
+            if (foundEpisode === null) {
+                foundEpisode = this.getEpisodeFromPosition();
+            }
+
+            // 5. Принудительно пытаемся получить из всех доступных источников
+            if (foundEpisode === null) {
+                foundEpisode = this.forceEpisodeDetection();
+            }
+
             this.log(`🎯 Результат поиска: сезон ${foundSeason}, эпизод ${foundEpisode}`, 'info');
             
             return {
@@ -624,22 +638,52 @@
                             () => component.selected_episode,
                             () => component.data?.episode,
                             () => component.object?.episode,
-                            () => component.movie?.episode
+                            () => component.movie?.episode,
+                            () => component.movie?.episodes?.current,
+                            () => component.movie?.episodes?.active,
+                            () => component.torrent?.episode,
+                            () => component.online?.episode,
+                            () => component.player?.episode,
+                            () => component.files?.active?.episode,
+                            () => component.files?.current?.episode
                         ];
 
                         for (const source of episodeSources) {
                             try {
                                 const episode = source();
-                                if (episode && !isNaN(parseInt(episode))) {
+                                if (episode !== undefined && episode !== null && !isNaN(parseInt(episode))) {
                                     const num = parseInt(episode);
                                     if (num > 0) {
-                                        this.log(`✅ Эпизод из Lampa Activity: ${num}`, 'debug');
+                                        this.log(`✅ Эпизод из Lampa Activity: ${num}`, 'info');
                                         return num;
                                     }
                                 }
                             } catch (e) {
                                 // Игнорируем ошибки отдельных источников
                             }
+                        }
+
+                        // Попытка извлечь номер эпизода из индекса файла
+                        if (component.files && component.files.current >= 0) {
+                            const fileIndex = component.files.current;
+                            if (fileIndex >= 0) {
+                                const episodeNum = fileIndex + 1; // Индекс файла обычно начинается с 0
+                                this.log(`✅ Эпизод из индекса файла: ${episodeNum}`, 'info');
+                                return episodeNum;
+                            }
+                        }
+
+                        // Попытка получить из torrent/online
+                        if (component.torrent && component.torrent.current >= 0) {
+                            const episodeNum = component.torrent.current + 1;
+                            this.log(`✅ Эпизод из торрент индекса: ${episodeNum}`, 'info');
+                            return episodeNum;
+                        }
+
+                        if (component.online && component.online.current >= 0) {
+                            const episodeNum = component.online.current + 1;
+                            this.log(`✅ Эпизод из онлайн индекса: ${episodeNum}`, 'info');
+                            return episodeNum;
                         }
                     }
                 }
@@ -671,6 +715,98 @@
                         return num;
                     }
                 }
+            }
+
+            return null;
+        }
+
+        /**
+         * Получение эпизода по позиции в списке
+         */
+        getEpisodeFromPosition() {
+            try {
+                // Ищем активный элемент среди списка эпизодов
+                const activeSelectors = ['.selector.focus', '.item.focus', '.episode-item.focus'];
+                
+                for (const activeSelector of activeSelectors) {
+                    const activeElement = document.querySelector(activeSelector);
+                    if (activeElement) {
+                        // Получаем родительский контейнер
+                        const container = activeElement.closest('.selector-list, .items, .episode-list, .torrent-list') || 
+                                        activeElement.parentElement;
+                        
+                        if (container) {
+                            // Получаем все элементы такого же типа
+                            const allElements = container.querySelectorAll('.selector, .item, .episode-item');
+                            const position = Array.from(allElements).indexOf(activeElement);
+                            
+                            if (position >= 0) {
+                                const episodeNum = position + 1;
+                                this.log(`✅ Эпизод определен по позиции: ${episodeNum}`, 'info');
+                                return episodeNum;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                this.log(`⚠️ Ошибка определения эпизода по позиции: ${error.message}`, 'warning');
+            }
+            
+            return null;
+        }
+
+        /**
+         * Принудительное обнаружение эпизода из всех источников
+         */
+        forceEpisodeDetection() {
+            try {
+                // Глубокий поиск в объекте Lampa
+                if (window.Lampa) {
+                    const sources = [
+                        () => Lampa.Player?.info?.movie?.episode,
+                        () => Lampa.Activity?.active()?.movie?.episode,
+                        () => Lampa.Storage.get('player_episode'),
+                        () => Lampa.Storage.get('current_episode'),
+                        () => Lampa.Storage.get('active_episode')
+                    ];
+
+                    for (const source of sources) {
+                        try {
+                            const episode = source();
+                            if (episode && !isNaN(parseInt(episode))) {
+                                const num = parseInt(episode);
+                                if (num > 0) {
+                                    this.log(`✅ Эпизод из принудительного поиска: ${num}`, 'info');
+                                    return num;
+                                }
+                            }
+                        } catch (e) {
+                            // Игнорируем ошибки
+                        }
+                    }
+                }
+
+                // Поиск в локальном хранилище
+                try {
+                    const keys = Object.keys(localStorage).filter(key => 
+                        key.includes('episode') || key.includes('current') || key.includes('active')
+                    );
+                    
+                    for (const key of keys) {
+                        const value = localStorage.getItem(key);
+                        if (value && !isNaN(parseInt(value))) {
+                            const num = parseInt(value);
+                            if (num > 0 && num < 1000) { // Разумные границы для номера эпизода
+                                this.log(`✅ Эпизод из localStorage (${key}): ${num}`, 'info');
+                                return num;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки localStorage
+                }
+            } catch (error) {
+                this.log(`⚠️ Ошибка принудительного определения эпизода: ${error.message}`, 'warning');
             }
 
             return null;
