@@ -19,7 +19,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip Universal',
-        version: '2.0.3',
+        version: '2.0.4',
         api: {
             endpoints: [
                 'https://api.anilibria.tv/v3/',
@@ -138,15 +138,35 @@
             this.episodeChangeCallbacks = [];
             this.titleDatabase = new Map(); // Локальная база названий
             this.lastEpisodeChangeTime = 0;
-            this.episodeChangeDelay = 2000; // 2 секунды задержки от hover
+            this.episodeChangeDelay = 3000; // 3 секунды задержки от hover
             this.isHoverEvent = false;
             this.stableEpisodeNumber = null;
+            this.isMouseMoving = false;
+            this.lastMouseMoveTime = 0;
+            this.setupMouseDetection();
             this.init();
+        }
+
+        /**
+         * Установка детекции движения мыши для блокировки hover событий
+         */
+        setupMouseDetection() {
+            // Отслеживаем движение мыши
+            document.addEventListener('mousemove', () => {
+                this.isMouseMoving = true;
+                this.lastMouseMoveTime = Date.now();
+                
+                // Очищаем флаг через 500мс после остановки движения
+                clearTimeout(this.mouseMoveTimeout);
+                this.mouseMoveTimeout = setTimeout(() => {
+                    this.isMouseMoving = false;
+                }, 500);
+            });
         }
 
         init() {
             try {
-                this.log('🚀 Инициализация универсального плагина v2.0.0...', 'info');
+                this.log('🚀 Инициализация универсального плагина v2.0.4...', 'info');
                 this.loadSettings();
                 this.setupLampaIntegration();
                 this.setupUniversalEventListeners();
@@ -155,7 +175,7 @@
                 this.loadLocalTitleDatabase();
                 this.isInitialized = true;
                 this.log('✅ Плагин успешно инициализирован в универсальном режиме', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v2.0.0 готов для всех источников!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v2.0.4 готов для всех источников!');
                 
                 this.performExtendedDiagnostics();
             } catch (error) {
@@ -748,35 +768,49 @@
         }
 
         /**
-         * Получение эпизода по позиции в списке (с защитой от hover)
+         * Получение эпизода по позиции в списке (ОТКЛЮЧЕНО при движении мыши)
          */
         getEpisodeFromPosition() {
             try {
                 const now = Date.now();
                 
-                // Проверяем, не слишком ли часто вызывается функция (защита от hover)
+                // КАРДИНАЛЬНАЯ ЗАЩИТА: полностью отключаем при движении мыши
+                if (this.isMouseMoving || (now - this.lastMouseMoveTime < 2000)) {
+                    // Если мышь двигалась в последние 2 секунды - возвращаем стабильный результат
+                    if (this.stableEpisodeNumber !== null) {
+                        return this.stableEpisodeNumber;
+                    }
+                    return null;
+                }
+                
+                // Дополнительная защита от частых вызовов
                 if (now - this.lastEpisodeChangeTime < this.episodeChangeDelay) {
                     if (this.stableEpisodeNumber !== null) {
                         return this.stableEpisodeNumber;
                     }
                 }
                 
-                // Ищем активный элемент среди списка эпизодов, но только стабильные элементы
+                // Ищем ТОЛЬКО .active элементы, исключаем все .focus
                 const activeSelectors = [
-                    '.selector.focus:not(.selector.hover)', 
-                    '.item.focus:not(.item.hover)', 
-                    '.episode-item.focus:not(.episode-item.hover)',
-                    '.selector.active',
-                    '.item.active', 
-                    '.episode-item.active'
+                    '.selector.active:not(.selector.focus)',
+                    '.item.active:not(.item.focus)', 
+                    '.episode-item.active:not(.episode-item.focus)'
                 ];
                 
                 for (const activeSelector of activeSelectors) {
                     const activeElement = document.querySelector(activeSelector);
                     if (activeElement) {
-                        // Дополнительная проверка на hover события
-                        if (activeElement.matches(':hover') && !activeElement.matches('.active')) {
-                            continue; // Пропускаем hover элементы
+                        // Убеждаемся что элемент НЕ в состоянии hover
+                        if (activeElement.matches(':hover')) {
+                            continue; // Полностью игнорируем hover элементы
+                        }
+                        
+                        // Проверяем что элемент действительно выбран, а не просто подсвечен
+                        const isReallyActive = activeElement.classList.contains('active') && 
+                                             !activeElement.classList.contains('focus');
+                        
+                        if (!isReallyActive) {
+                            continue;
                         }
                         
                         // Получаем родительский контейнер
@@ -791,17 +825,16 @@
                             if (position >= 0) {
                                 const episodeNum = position + 1;
                                 
-                                // Проверяем стабильность номера эпизода
-                                if (this.stableEpisodeNumber === episodeNum) {
-                                    return episodeNum;
-                                } else {
-                                    // Устанавливаем новый стабильный номер только если прошло достаточно времени
+                                // Устанавливаем новый стабильный номер только при реальном изменении
+                                if (this.stableEpisodeNumber !== episodeNum) {
                                     if (now - this.lastEpisodeChangeTime >= this.episodeChangeDelay) {
                                         this.stableEpisodeNumber = episodeNum;
                                         this.lastEpisodeChangeTime = now;
-                                        this.log(`✅ Стабильный эпизод определен по позиции: ${episodeNum}`, 'info');
+                                        this.log(`✅ Стабильный эпизод определен по позиции (без hover): ${episodeNum}`, 'info');
                                         return episodeNum;
                                     }
+                                } else {
+                                    return episodeNum; // Возвращаем текущий стабильный
                                 }
                             }
                         }
