@@ -19,7 +19,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip Universal',
-        version: '2.0.0',
+        version: '2.0.1',
         api: {
             endpoints: [
                 'https://api.anilibria.tv/v3/',
@@ -42,7 +42,7 @@
         },
         settings: {
             autoSkipEnabled: true,
-            debugEnabled: true,
+            debugEnabled: false, // Отключаем избыточное логирование
             skipDelay: 800,
             cacheEnabled: true,
             showNotifications: true,
@@ -379,12 +379,16 @@
             if (!title) return '';
             
             return title
-                .replace(/^\d+\.\s*/, '') // Убираем номера в начале
+                .replace(/^\d+[\.\s]+/, '') // Убираем номера в начале
                 .replace(/\s*\(\d{4}\).*$/, '') // Убираем год и всё после него
                 .replace(/\s*\[.*?\]/g, '') // Убираем квадратные скобки
                 .replace(/\s*\(.*?\)/g, '') // Убираем круглые скобки
                 .replace(/\s*-\s*сезон.*$/i, '') // Убираем "сезон"
                 .replace(/\s*season.*$/i, '') // Убираем "season"
+                .replace(/\s*\d+\s*сезон/i, '') // Убираем "N сезон"
+                .replace(/\s*s\d+/i, '') // Убираем "S1", "S2" и т.д.
+                .replace(/^\d+[\.\s]*K[\.\s]*/, '') // Убираем размер файла в начале (например "8.14K")
+                .replace(/\d{4}$/, '') // Убираем год в конце
                 .replace(/\s+/g, ' ') // Нормализуем пробелы
                 .trim();
         }
@@ -450,7 +454,7 @@
                 });
 
                 if (shouldRecheck) {
-                    this.log('👁️ DOM Observer: обнаружены изменения элементов', 'debug');
+                    // Убираем избыточное логирование DOM Observer
                     setTimeout(() => this.universalContentRecheck(), 300);
                 }
             });
@@ -526,12 +530,11 @@
             // 1. Проверяем все селекторы эпизодов
             for (const selector of EPISODE_SELECTORS) {
                 const elements = document.querySelectorAll(selector);
-                this.log(`🔍 Найдено ${elements.length} элементов для селектора: ${selector}`, 'debug');
                 
                 for (const element of elements) {
                     const episodeNum = this.extractEpisodeFromElement(element);
                     if (episodeNum !== null) {
-                        this.log(`✅ Номер эпизода из ${selector}: ${episodeNum}`, 'debug');
+                        this.log(`✅ Номер эпизода из ${selector}: ${episodeNum}`, 'info');
                         foundEpisode = episodeNum;
                         break;
                     }
@@ -576,7 +579,6 @@
 
             // 2. Анализируем текст элемента
             const text = element.textContent || element.innerText || '';
-            this.log(`🔍 Анализируем текст элемента: "${text}"`, 'debug');
             
             // Различные паттерны для извлечения номера эпизода
             const patterns = [
@@ -596,7 +598,7 @@
                 if (match) {
                     const num = parseInt(match[1]);
                     if (!isNaN(num) && num > 0) {
-                        this.log(`✅ Номер эпизода из паттерна ${pattern}: "${text}" -> ${num}`, 'debug');
+                        this.log(`✅ Номер эпизода из паттерна ${pattern}: "${text}" -> ${num}`, 'info');
                         return num;
                     }
                 }
@@ -678,18 +680,77 @@
          * Поиск названия в текущем DOM
          */
         findUniversalTitle() {
+            // 1. Сначала пытаемся получить из Lampa Activity
+            try {
+                if (Lampa.Activity && Lampa.Activity.active()) {
+                    const activity = Lampa.Activity.active();
+                    if (activity && activity.component && activity.component.movie) {
+                        const title = this.extractUniversalTitle(activity.component.movie);
+                        if (title) {
+                            this.log(`🎯 Название из Lampa Activity: "${title}"`, 'debug');
+                            return title;
+                        }
+                    }
+                }
+            } catch (error) {
+                this.log(`⚠️ Ошибка получения названия из Activity: ${error.message}`, 'warning');
+            }
+
+            // 2. Ищем в специфичных селекторах для названий
+            const specificSelectors = [
+                '.full-start__title',
+                '.card__title', 
+                '.player__title',
+                'h1.title',
+                'h2.title'
+            ];
+
+            for (const selector of specificSelectors) {
+                const elements = document.querySelectorAll(selector);
+                for (const element of elements) {
+                    const text = element.textContent || element.innerText || '';
+                    const cleanedTitle = this.cleanTitle(text);
+                    if (cleanedTitle.length > 3 && !this.isJunkTitle(cleanedTitle)) {
+                        this.log(`🎯 Название найдено в DOM: "${cleanedTitle}"`, 'debug');
+                        return cleanedTitle;
+                    }
+                }
+            }
+
+            // 3. Если не нашли, ищем в общих селекторах, но с фильтрацией
             for (const selector of TITLE_SELECTORS) {
                 const elements = document.querySelectorAll(selector);
                 for (const element of elements) {
                     const text = element.textContent || element.innerText || '';
                     const cleanedTitle = this.cleanTitle(text);
-                    if (cleanedTitle.length > 3) {
+                    if (cleanedTitle.length > 5 && !this.isJunkTitle(cleanedTitle)) {
                         this.log(`🎯 Название найдено в DOM: "${cleanedTitle}"`, 'debug');
                         return cleanedTitle;
                     }
                 }
             }
             return null;
+        }
+
+        /**
+         * Проверка, является ли название мусорным
+         */
+        isJunkTitle(title) {
+            if (!title) return true;
+            
+            const junkPatterns = [
+                /^\d+[\.\s]*$/, // Только цифры
+                /^[\d\.\s]+[КMГТПгмкт]/i, // Цифры с размерными единицами
+                /^\d{4}$/, // Только год
+                /^(HD|4K|1080p|720p)/i, // Качество видео
+                /приручить.*дракон/i, // Исключаем "Как приручить дракона" - это не аниме
+                /^.{1,3}$/, // Слишком короткие
+                /^\d+[\.\s]*K[\.\s]*/i, // Размеры файлов типа "8.14K"
+                /^(загрузка|loading|menu|меню)/i, // Системные элементы
+                /^(главная|home|settings|настройки)/i // Интерфейсные элементы
+            ];
+
+            return junkPatterns.some(pattern => pattern.test(title));
         }
 
         /**
@@ -821,18 +882,12 @@
         }
 
         /**
-         * Запрос к нескольким API
+         * Запрос к нескольким API (отключено из-за CORS)
          */
         async fetchFromMultipleAPIs(title) {
-            for (const endpoint of CONFIG.api.endpoints) {
-                try {
-                    this.log(`🌐 Запрос к API: ${endpoint}`, 'debug');
-                    const data = await this.fetchFromAPI(endpoint, title);
-                    if (data) return data;
-                } catch (error) {
-                    this.log(`❌ Ошибка API ${endpoint}: ${error.message}`, 'warning');
-                }
-            }
+            // API запросы отключены из-за CORS ограничений
+            // Используем только встроенные данные
+            this.log('⚠️ API запросы пропущены из-за CORS ограничений', 'warning');
             return null;
         }
 
@@ -943,6 +998,19 @@
                 },
                 'восхождение героя щита': {
                     opening: { start: 90, end: 180 },
+                    ending: { start: 1300, end: 1420 },
+                    episodes: {
+                        1: { opening: { start: 0, end: 90 }, ending: { start: 1300, end: 1420 } },
+                        2: { opening: { start: 90, end: 180 }, ending: { start: 1290, end: 1410 } },
+                        3: { opening: { start: 90, end: 180 }, ending: { start: 1300, end: 1420 } }
+                    }
+                },
+                'tate no yuusha no nariagari': {
+                    opening: { start: 90, end: 180 },
+                    ending: { start: 1300, end: 1420 }
+                },
+                'the rising of the shield hero': {
+                    opening: { start: 90, end: 180 },
                     ending: { start: 1300, end: 1420 }
                 },
                 'клинок рассекающий демонов': {
@@ -966,7 +1034,25 @@
                 return builtInData[normalizedTitle];
             }
 
-            // Частичное совпадение
+            // Частичное совпадение по ключевым словам
+            const titleKeywords = {
+                'восхождение героя щита': ['щит', 'hero', 'shield', 'tate', 'yuusha', 'nariagari', 'rising'],
+                'магия и мускулы': ['магия', 'мускул', 'magic', 'muscle', 'mashle'],
+                'клинок рассекающий демонов': ['клинок', 'демон', 'kimetsu', 'yaiba', 'demon', 'slayer'],
+                'атака титанов': ['титан', 'shingeki', 'kyojin', 'attack', 'titan'],
+                'моя геройская академия': ['герой', 'академия', 'boku', 'hero', 'academia']
+            };
+
+            for (const [animeTitle, keywords] of Object.entries(titleKeywords)) {
+                for (const keyword of keywords) {
+                    if (normalizedTitle.includes(keyword.toLowerCase())) {
+                        this.log(`✅ Найдено совпадение по ключевому слову "${keyword}": "${normalizedTitle}" -> "${animeTitle}"`, 'info');
+                        return builtInData[animeTitle];
+                    }
+                }
+            }
+
+            // Обычное частичное совпадение
             for (const [key, data] of Object.entries(builtInData)) {
                 if (normalizedTitle.includes(key) || key.includes(normalizedTitle)) {
                     this.log(`✅ Найдено частичное совпадение: "${normalizedTitle}" -> "${key}"`, 'debug');
