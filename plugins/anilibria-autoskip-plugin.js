@@ -19,7 +19,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip Universal',
-        version: '2.0.2',
+        version: '2.0.3',
         api: {
             endpoints: [
                 'https://api.anilibria.tv/v3/',
@@ -137,6 +137,10 @@
             this.domObserver = null;
             this.episodeChangeCallbacks = [];
             this.titleDatabase = new Map(); // Локальная база названий
+            this.lastEpisodeChangeTime = 0;
+            this.episodeChangeDelay = 2000; // 2 секунды задержки от hover
+            this.isHoverEvent = false;
+            this.stableEpisodeNumber = null;
             this.init();
         }
 
@@ -528,6 +532,18 @@
         findUniversalEpisodeNumber() {
             this.log('🔍 Универсальный поиск номера эпизода...', 'debug');
             
+            const now = Date.now();
+            
+            // Защита от слишком частых вызовов (hover события)
+            if (now - this.lastEpisodeChangeTime < 1000) { // 1 секунда защита
+                if (this.stableEpisodeNumber !== null) {
+                    return {
+                        episode: this.stableEpisodeNumber,
+                        season: 1
+                    };
+                }
+            }
+            
             let foundEpisode = null;
             let foundSeason = 1; // По умолчанию первый сезон
 
@@ -567,10 +583,21 @@
                 foundEpisode = this.forceEpisodeDetection();
             }
 
-            this.log(`🎯 Результат поиска: сезон ${foundSeason}, эпизод ${foundEpisode}`, 'info');
+            // Обновляем стабильный номер эпизода только если найден новый
+            if (foundEpisode !== null && foundEpisode !== this.stableEpisodeNumber) {
+                if (now - this.lastEpisodeChangeTime >= 1000) { // Минимум 1 секунда между изменениями
+                    this.stableEpisodeNumber = foundEpisode;
+                    this.lastEpisodeChangeTime = now;
+                    this.log(`🎯 Стабильный результат: сезон ${foundSeason}, эпизод ${foundEpisode}`, 'info');
+                }
+            }
+            
+            // Возвращаем стабильный результат
+            const finalEpisode = this.stableEpisodeNumber || foundEpisode;
+            this.log(`🎯 Результат поиска: сезон ${foundSeason}, эпизод ${finalEpisode}`, 'info');
             
             return {
-                episode: foundEpisode,
+                episode: finalEpisode,
                 season: foundSeason
             };
         }
@@ -721,16 +748,37 @@
         }
 
         /**
-         * Получение эпизода по позиции в списке
+         * Получение эпизода по позиции в списке (с защитой от hover)
          */
         getEpisodeFromPosition() {
             try {
-                // Ищем активный элемент среди списка эпизодов
-                const activeSelectors = ['.selector.focus', '.item.focus', '.episode-item.focus'];
+                const now = Date.now();
+                
+                // Проверяем, не слишком ли часто вызывается функция (защита от hover)
+                if (now - this.lastEpisodeChangeTime < this.episodeChangeDelay) {
+                    if (this.stableEpisodeNumber !== null) {
+                        return this.stableEpisodeNumber;
+                    }
+                }
+                
+                // Ищем активный элемент среди списка эпизодов, но только стабильные элементы
+                const activeSelectors = [
+                    '.selector.focus:not(.selector.hover)', 
+                    '.item.focus:not(.item.hover)', 
+                    '.episode-item.focus:not(.episode-item.hover)',
+                    '.selector.active',
+                    '.item.active', 
+                    '.episode-item.active'
+                ];
                 
                 for (const activeSelector of activeSelectors) {
                     const activeElement = document.querySelector(activeSelector);
                     if (activeElement) {
+                        // Дополнительная проверка на hover события
+                        if (activeElement.matches(':hover') && !activeElement.matches('.active')) {
+                            continue; // Пропускаем hover элементы
+                        }
+                        
                         // Получаем родительский контейнер
                         const container = activeElement.closest('.selector-list, .items, .episode-list, .torrent-list') || 
                                         activeElement.parentElement;
@@ -742,12 +790,26 @@
                             
                             if (position >= 0) {
                                 const episodeNum = position + 1;
-                                this.log(`✅ Эпизод определен по позиции: ${episodeNum}`, 'info');
-                                return episodeNum;
+                                
+                                // Проверяем стабильность номера эпизода
+                                if (this.stableEpisodeNumber === episodeNum) {
+                                    return episodeNum;
+                                } else {
+                                    // Устанавливаем новый стабильный номер только если прошло достаточно времени
+                                    if (now - this.lastEpisodeChangeTime >= this.episodeChangeDelay) {
+                                        this.stableEpisodeNumber = episodeNum;
+                                        this.lastEpisodeChangeTime = now;
+                                        this.log(`✅ Стабильный эпизод определен по позиции: ${episodeNum}`, 'info');
+                                        return episodeNum;
+                                    }
+                                }
                             }
                         }
                     }
                 }
+                
+                // Возвращаем последний стабильный номер если ничего нового не найдено
+                return this.stableEpisodeNumber;
             } catch (error) {
                 this.log(`⚠️ Ошибка определения эпизода по позиции: ${error.message}`, 'warning');
             }
