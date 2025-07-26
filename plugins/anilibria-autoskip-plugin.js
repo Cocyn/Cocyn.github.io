@@ -1,15 +1,17 @@
 /**
- * Anilibria Auto-Skip Plugin v2.1.0
+ * Anilibria Auto-Skip Plugin v2.1.1
  *
  * Универсальный плагин для автоматического пропуска заставок и титров в аниме от всех источников.
  *
- * ОСНОВНЫЕ ИСПРАВЛЕНИЯ v2.1.0:
+ * ОСНОВНЫЕ ИСПРАВЛЕНИЯ v2.1.1:
+ * - Улучшена точность определения номера эпизода, особенно после смены серии.
+ * - Усилена логика "стабильного" номера эпизода для предотвращения ложных срабатываний.
+ * - Добавлены дополнительные проверки и логирование для отладки определения эпизодов.
  * - Устранена проблема с ложными срабатываниями по наведению курсора (hover)
  * - Удалены неработающие API-запросы из-за CORS ограничений
  * - Расширена встроенная база данных пропусков для популярных аниме
  * - Добавлена возможность ручной настройки времени пропуска через UI
  * - Добавлена кнопка "Пропустить" для ручного пропуска
- * - Улучшена логика определения номера эпизода и стабильности
  * - Оптимизировано логирование для уменьшения шума в консоли
  *
  * URL: http://localhost:5000/anilibria-autoskip-plugin.js
@@ -20,7 +22,7 @@
     const CONFIG = {
         id: 'anilibria_autoskip',
         name: 'Anilibria Auto-Skip Universal',
-        version: '2.1.0',
+        version: '2.1.1',
         api: {
             // API запросы отключены из-за CORS ограничений.
             // Используем только встроенные данные и пользовательские настройки.
@@ -169,7 +171,7 @@
 
         init() {
             try {
-                this.log('🚀 Инициализация универсального плагина v2.1.0...', 'info');
+                this.log('🚀 Инициализация универсального плагина v2.1.1...', 'info');
                 this.loadSettings();
                 this.loadManualSkipData(); // Загружаем пользовательские данные
                 this.setupLampaIntegration();
@@ -180,7 +182,7 @@
                 this.setupMouseDetection(); // Инициализируем детекцию мыши
                 this.isInitialized = true;
                 this.log('✅ Плагин успешно инициализирован в универсальном режиме', 'success');
-                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v2.1.0 готов для всех источников!');
+                this.showSkipNotification('success', '🎯 Anilibria Auto-Skip v2.1.1 готов для всех источников!');
 
                 this.performExtendedDiagnostics();
             } catch (error) {
@@ -562,7 +564,8 @@
                 this.extractEpisodeFromSeriesEvent(e);
 
                 // Добавляем небольшую задержку, чтобы DOM успел обновиться после выбора
-                setTimeout(() => this.universalContentRecheck(), 500);
+                // Увеличиваем задержку, чтобы дать Lampa время обновить DOM и внутреннее состояние
+                setTimeout(() => this.universalContentRecheck(), 800);
             }
         }
 
@@ -792,73 +795,80 @@
             this.log('🔍 Универсальный поиск номера эпизода...', 'debug');
 
             const now = Date.now();
-
-            // Если мышь активно двигается, используем только стабильный результат, если он есть
-            // Это предотвращает ложные срабатывания при наведении на элементы списка
-            if (this.isMouseMoving && this.stableEpisodeNumber !== null) {
-                this.log(`⚠️ Мышь движется, возвращаем стабильный эпизод: ${this.stableEpisodeNumber}`, 'debug');
-                return {
-                    episode: this.stableEpisodeNumber,
-                    season: 1 // Предполагаем 1 сезон, если нет явных данных
-                };
-            }
-
             let foundEpisode = null;
             let foundSeason = 1; // По умолчанию первый сезон
 
-            // 1. Проверяем все селекторы эпизодов
-            for (const selector of EPISODE_SELECTORS) {
-                const elements = document.querySelectorAll(selector);
-
-                for (const element of elements) {
-                    // Игнорируем элементы, на которые наведен курсор, если они не являются "активными"
-                    // Это помогает отфильтровать ложные срабатывания от hover
-                    if (element.matches(':hover') && !element.classList.contains('active') && !element.classList.contains('selected')) {
-                        continue;
-                    }
-
-                    const episodeNum = this.extractEpisodeFromElement(element);
-                    if (episodeNum !== null) {
-                        this.log(`✅ Номер эпизода из ${selector}: ${episodeNum}`, 'debug');
-                        foundEpisode = episodeNum;
-                        break;
-                    }
-                }
-
-                if (foundEpisode !== null) break;
+            // 1. Пробуем через Lampa API (наиболее надежный источник)
+            const lampaEpisode = this.getEpisodeFromLampaActivity();
+            if (lampaEpisode !== null) {
+                this.log(`✅ Эпизод из Lampa Activity (приоритет): ${lampaEpisode}`, 'debug');
+                foundEpisode = lampaEpisode;
             }
 
-            // 2. Если не нашли, пробуем через Lampa API
+            // 2. Проверяем все селекторы эпизодов в DOM
             if (foundEpisode === null) {
-                foundEpisode = this.getEpisodeFromLampaActivity();
+                for (const selector of EPISODE_SELECTORS) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                        // Игнорируем элементы, на которые наведен курсор, если они не являются "активными"
+                        if (element.matches(':hover') && !element.classList.contains('active') && !element.classList.contains('selected')) {
+                            this.log(`⚠️ Игнорируем hover-элемент: ${selector}`, 'debug');
+                            continue;
+                        }
+                        const episodeNum = this.extractEpisodeFromElement(element);
+                        if (episodeNum !== null) {
+                            this.log(`✅ Номер эпизода из DOM (${selector}): ${episodeNum}`, 'debug');
+                            foundEpisode = episodeNum;
+                            break;
+                        }
+                    }
+                    if (foundEpisode !== null) break;
+                }
             }
 
             // 3. Если всё ещё не нашли, ищем в URL
             if (foundEpisode === null) {
-                foundEpisode = this.extractEpisodeFromURL();
+                const episodeFromURL = this.extractEpisodeFromURL();
+                if (episodeFromURL !== null) {
+                    this.log(`✅ Эпизод из URL: ${episodeFromURL}`, 'debug');
+                    foundEpisode = episodeFromURL;
+                }
             }
 
             // 4. Если всё ещё не нашли, пытаемся определить по позиции (только если мышь не движется)
             if (foundEpisode === null && !this.isMouseMoving) {
-                foundEpisode = this.getEpisodeFromPosition();
+                const episodeFromPosition = this.getEpisodeFromPosition();
+                if (episodeFromPosition !== null) {
+                    this.log(`✅ Эпизод по позиции: ${episodeFromPosition}`, 'debug');
+                    foundEpisode = episodeFromPosition;
+                }
             }
 
-            // 5. Принудительно пытаемся получить из всех доступных источников
+            // 5. Принудительно пытаемся получить из всех доступных источников (как запасной вариант)
             if (foundEpisode === null) {
-                foundEpisode = this.forceEpisodeDetection();
+                const forcedEpisode = this.forceEpisodeDetection();
+                if (forcedEpisode !== null) {
+                    this.log(`✅ Эпизод из принудительного поиска: ${forcedEpisode}`, 'debug');
+                    foundEpisode = forcedEpisode;
+                }
             }
+
 
             // Обновляем стабильный номер эпизода
             if (foundEpisode !== null) {
                 // Если эпизод изменился или прошло достаточно времени с последнего изменения
-                if (foundEpisode !== this.stableEpisodeNumber || (now - this.lastEpisodeChangeTime > this.episodeChangeDelay)) {
+                // Увеличиваем порог для обновления stableEpisodeNumber, чтобы он был более "стабильным"
+                if (foundEpisode !== this.stableEpisodeNumber || (now - this.lastEpisodeChangeTime > 2000)) { // 2 секунды
                     this.stableEpisodeNumber = foundEpisode;
                     this.lastEpisodeChangeTime = now;
                     this.log(`🎯 Стабильный результат обновлен: сезон ${foundSeason}, эпизод ${foundEpisode}`, 'info');
                 }
             } else {
-                // Если ничего не найдено, сбрасываем стабильный номер
-                this.stableEpisodeNumber = null;
+                // Если ничего не найдено, сбрасываем стабильный номер, но только если прошло много времени
+                if (now - this.lastEpisodeChangeTime > 5000) { // Сбрасываем только через 5 секунд неактивности
+                    this.stableEpisodeNumber = null;
+                    this.log('⚠️ Стабильный эпизод сброшен (не найдено новых данных)', 'debug');
+                }
             }
 
             // Возвращаем стабильный результат, если он есть, иначе найденный эпизод (который может быть null)
@@ -883,17 +893,20 @@
                 const value = element.getAttribute(attr);
                 if (value) {
                     const num = parseInt(value);
-                    if (!isNaN(num) && num > 0) return num;
+                    if (!isNaN(num) && num > 0) {
+                        this.log(`DEBUG: Эпизод из data-attr ${attr}: ${value}`, 'debug');
+                        return num;
+                    }
                 }
             }
 
             // 2. Анализируем текст элемента
-            const text = element.textContent || element.innerText || '';
+            const text = (element.textContent || element.innerText || '').trim();
 
             // Различные паттерны для извлечения номера эпизода
             const patterns = [
-                /^(\d+)\./, // Начинается с числа и точки
-                /^(\d+)\s/, // Начинается с числа и пробела
+                /^(\d+)\./, // Начинается с числа и точки (e.g., "2. Название")
+                /^(\d+)\s/, // Начинается с числа и пробела (e.g., "2 Название")
                 /эпизод\s*(\d+)/i, // "эпизод N"
                 /серия\s*(\d+)/i, // "серия N"
                 /episode\s*(\d+)/i, // "episode N"
@@ -908,10 +921,17 @@
                 if (match) {
                     const num = parseInt(match[1]);
                     if (!isNaN(num) && num > 0) {
-                        this.log(`✅ Номер эпизода из паттерна ${pattern}: "${text.trim()}" -> ${num}`, 'debug');
+                        this.log(`DEBUG: Эпизод из паттерна ${pattern}: "${text}" -> ${num}`, 'debug');
                         return num;
                     }
                 }
+            }
+
+            // Дополнительная проверка: если элемент содержит только числовой текст
+            const pureNum = parseInt(text);
+            if (!isNaN(pureNum) && pureNum > 0 && text.length <= 4) { // Ограничиваем длину, чтобы не парсить случайные числа
+                this.log(`DEBUG: Эпизод из чистого числового текста: "${text}" -> ${pureNum}`, 'debug');
+                return pureNum;
             }
 
             return null;
@@ -927,11 +947,16 @@
                     if (activity && activity.component) {
                         const component = activity.component;
 
-                        // Различные способы получения номера эпизода
+                        // Различные способы получения номера эпизода (от наиболее надежных к менее)
                         const episodeSources = [
                             () => component.episode,
                             () => component.current_episode,
                             () => component.selected_episode,
+                            () => Lampa.Player?.info?.episode, // Прямо из плеера
+                            () => Lampa.Player?.info?.movie?.episode, // Из информации о фильме в плеере
+                            () => Lampa.Storage.get('player_episode'),
+                            () => Lampa.Storage.get('current_episode'),
+                            () => Lampa.Storage.get('active_episode'),
                             () => component.data?.episode,
                             () => component.object?.episode,
                             () => component.movie?.episode,
@@ -950,12 +975,13 @@
                                 if (episode !== undefined && episode !== null && !isNaN(parseInt(episode))) {
                                     const num = parseInt(episode);
                                     if (num > 0) {
-                                        this.log(`✅ Эпизод из Lampa Activity: ${num}`, 'debug');
+                                        this.log(`DEBUG: Эпизод из Lampa Activity (источник): ${source.toString()} -> ${num}`, 'debug');
                                         return num;
                                     }
                                 }
                             } catch (e) {
                                 // Игнорируем ошибки отдельных источников
+                                this.log(`DEBUG: Ошибка при получении эпизода из источника Lampa Activity: ${e.message}`, 'debug');
                             }
                         }
 
@@ -964,7 +990,7 @@
                             const fileIndex = component.files.current;
                             if (fileIndex >= 0) {
                                 const episodeNum = fileIndex + 1; // Индекс файла обычно начинается с 0
-                                this.log(`✅ Эпизод из индекса файла: ${episodeNum}`, 'debug');
+                                this.log(`DEBUG: Эпизод из индекса файла: ${episodeNum}`, 'debug');
                                 return episodeNum;
                             }
                         }
@@ -972,13 +998,13 @@
                         // Попытка получить из torrent/online
                         if (component.torrent && component.torrent.current >= 0) {
                             const episodeNum = component.torrent.current + 1;
-                            this.log(`✅ Эпизод из торрент индекса: ${episodeNum}`, 'debug');
+                            this.log(`DEBUG: Эпизод из торрент индекса: ${episodeNum}`, 'debug');
                             return episodeNum;
                         }
 
                         if (component.online && component.online.current >= 0) {
                             const episodeNum = component.online.current + 1;
-                            this.log(`✅ Эпизод из онлайн индекса: ${episodeNum}`, 'debug');
+                            this.log(`DEBUG: Эпизод из онлайн индекса: ${episodeNum}`, 'debug');
                             return episodeNum;
                         }
                     }
@@ -1007,7 +1033,7 @@
                 if (match) {
                     const num = parseInt(match[1]);
                     if (!isNaN(num) && num > 0) {
-                        this.log(`✅ Эпизод из URL: ${num}`, 'debug');
+                        this.log(`DEBUG: Эпизод из URL: ${num}`, 'debug');
                         return num;
                     }
                 }
@@ -1053,7 +1079,7 @@
 
                             if (position >= 0) {
                                 const episodeNum = position + 1;
-                                this.log(`✅ Эпизод определен по позиции: ${episodeNum}`, 'debug');
+                                this.log(`DEBUG: Эпизод определен по позиции: ${episodeNum}`, 'debug');
                                 return episodeNum;
                             }
                         }
@@ -1084,10 +1110,10 @@
                     for (const source of sources) {
                         try {
                             const episode = source();
-                            if (episode && !isNaN(parseInt(episode))) {
+                            if (episode !== undefined && episode !== null && !isNaN(parseInt(episode))) {
                                 const num = parseInt(episode);
                                 if (num > 0) {
-                                    this.log(`✅ Эпизод из принудительного поиска (Lampa): ${num}`, 'debug');
+                                    this.log(`DEBUG: Эпизод из принудительного поиска (Lampa): ${num}`, 'debug');
                                     return num;
                                 }
                             }
@@ -1108,7 +1134,7 @@
                         if (value && !isNaN(parseInt(value))) {
                             const num = parseInt(value);
                             if (num > 0 && num < 1000) { // Разумные границы для номера эпизода
-                                this.log(`✅ Эпизод из localStorage (${key}): ${num}`, 'debug');
+                                this.log(`DEBUG: Эпизод из localStorage (${key}): ${num}`, 'debug');
                                 return num;
                             }
                         }
@@ -1219,7 +1245,7 @@
                 if (data[field] !== undefined && data[field] !== null) {
                     const num = parseInt(data[field]);
                     if (!isNaN(num) && num > 0) {
-                        this.log(`✅ Эпизод из события сериала (${field}): ${num}`, 'debug');
+                        this.log(`DEBUG: Эпизод из события сериала (${field}): ${num}`, 'debug');
                         this.currentEpisode = num;
                         return;
                     }
@@ -1815,7 +1841,7 @@
          * Расширенная диагностика
          */
         performExtendedDiagnostics() {
-            this.log('🔍 === РАСШИРЕННАЯ ДИАГНОСТИКА v2.1.0 ===', 'info');
+            this.log('🔍 === РАСШИРЕННАЯ ДИАГНОСТИКА v2.1.1 ===', 'info');
             this.log(`🔍 Lampa доступна: ${typeof Lampa !== 'undefined'}`, 'info');
             this.log(`🔍 Lampa.Player доступен: ${!!(Lampa && Lampa.Player)}`, 'info');
             this.log(`🔍 Lampa.Activity доступен: ${!!(Lampa && Lampa.Activity)}`, 'info');
@@ -1860,7 +1886,9 @@
          * Система логирования
          */
         log(message, level = 'info') {
-            if (!this.settings.debugEnabled && level === 'debug') return;
+            // Временно включаем debug для отладки findUniversalEpisodeNumber
+            const isEpisodeDebug = message.includes('Эпизод') || message.includes('Результат поиска');
+            if (!this.settings.debugEnabled && level === 'debug' && !isEpisodeDebug) return;
 
             const timestamp = new Date().toLocaleTimeString();
             const icons = {
