@@ -1,127 +1,151 @@
 (function () {
-    const PLUGIN_ID = 'autosync';
-    const PLUGIN_NAME = 'AutoSync ViewTracker';
+    'use strict';
 
-    const SHIKI_CLIENT_ID = 'your_client_id'; // Заменить на свой, если получаешь токен через OAuth
-    const STORAGE_KEY = `${PLUGIN_ID}_config`;
+    // Инициализация плагина
+    const PLUGIN_NAME = 'SyncPlugin';
+    const STORAGE_PREFIX = 'sync_plugin_';
+    const log = (...args) => console.log(`[${PLUGIN_NAME}]`, ...args);
 
-    let config = Lampa.Storage.get(STORAGE_KEY, {});
+    // Настройки по умолчанию
+    const defaultSettings = {
+        enabled: false,
+        shikimoriToken: '',
+        kinopubToken: '',
+    };
 
-    const log = (...args) => console.log(`[%c${PLUGIN_NAME}%c]`, 'color: #2196f3', '', ...args);
+    // Получение и сохранение настроек
+    const getSetting = (key) => Lampa.Storage.get(`${STORAGE_PREFIX}${key}`, defaultSettings[key]);
+    const setSetting = (key, value) => Lampa.Storage.set(`${STORAGE_PREFIX}${key}`, value);
 
-    function saveConfig() {
-        Lampa.Storage.set(STORAGE_KEY, config);
-    }
+    // API-конфигурация
+    const SHIKIMORI_API = 'https://shikimori.one/api';
+    const KINOPUB_API = 'https://api.kinopub.me/v1';
 
-    function authBlock() {
-        let html = $('<div class="settings-param selector" style="margin: 1em 0">Авторизация Shikimori (вставь токен)</div>');
-        html.on('hover:enter', () => {
-            Lampa.Input.show('Shikimori Token', config.shikimori_token || '', (val) => {
-                config.shikimori_token = val;
-                saveConfig();
-                log('Shikimori токен сохранён');
+    // Слушатель окончания воспроизведения
+    Lampa.Player.listener.follow('ended', (e) => {
+        if (!getSetting('enabled')) return;
+        const data = e.data;
+        log('Playback ended:', data);
+
+        const title = data.movie.title || data.movie.name;
+        const isAnime = data.movie.type === 'anime';
+        const episode = data.episode || 1;
+        const season = data.season || 1;
+
+        if (isAnime && getSetting('shikimoriToken')) {
+            syncShikimori(title, episode);
+        } else if (getSetting('kinopubToken')) {
+            syncKinoPub(title, isAnime ? null : season, episode);
+        }
+    });
+
+    // Синхронизация с Shikimori
+    async function syncShikimori(title, episode) {
+        try {
+            log('Searching Shikimori for:', title);
+            const searchResponse = await fetch(`${SHIKIMORI_API}/animes?search=${encodeURIComponent(title)}`, {
+                headers: { 'Authorization': `Bearer ${getSetting('shikimoriToken')}` }
             });
-        });
+            const animes = await searchResponse.json();
+            if (!animes.length) throw new Error('Anime not found');
 
-        let kphtml = $('<div class="settings-param selector" style="margin: 1em 0">KinoPub Token (kp_remember_token)</div>');
-        kphtml.on('hover:enter', () => {
-            Lampa.Input.show('KinoPub Token', config.kinopub_token || '', (val) => {
-                config.kinopub_token = val;
-                saveConfig();
-                log('KinoPub токен сохранён');
-            });
-        });
+            const animeId = animes[0].id;
+            log('Found anime ID:', animeId);
 
-        return [html, kphtml];
-    }
-
-    function sendToShikimori(title, episode) {
-        if (!config.shikimori_token) return;
-
-        fetch(`https://shikimori.one/api/animes?search=${encodeURIComponent(title)}`)
-            .then(r => r.json())
-            .then(animes => {
-                if (animes.length === 0) return;
-                const animeId = animes[0].id;
-
-                fetch(`https://shikimori.one/api/v2/user_rates`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.shikimori_token}`,
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        user_rate: {
-                            anime_id: animeId,
-                            status: 'watching',
-                            episodes: episode || 1
-                        }
-                    })
+            const rateResponse = await fetch(`${SHIKIMORI_API}/v2/user_rates/${animeId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${getSetting('shikimoriToken')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_rate: { episodes: episode, status: 'watching' }
                 })
-                .then(res => res.json())
-                .then(data => log('Shikimori обновлён:', data))
-                .catch(err => log('Ошибка Shikimori:', err));
             });
-    }
-
-    function sendToKinoPub(title) {
-        if (!config.kinopub_token) return;
-
-        fetch(`https://api.service-kp.com/v1/history/add`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${config.kinopub_token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                title: title,
-                progress: 100
-            })
-        })
-        .then(res => res.json())
-        .then(data => log('KinoPub просмотр добавлен:', data))
-        .catch(err => log('Ошибка KinoPub:', err));
-    }
-
-    function handlePlaybackEnd() {
-        const current = Lampa.Player.video();
-        if (!current) return;
-
-        const title = current.title || current.original_title || '';
-        const episode = current.episode;
-
-        log('Отслежено завершение просмотра:', title, episode);
-
-        if (title.toLowerCase().includes('аниме')) {
-            sendToShikimori(title, episode);
-        } else {
-            sendToKinoPub(title);
+            if (rateResponse.ok) {
+                log('Shikimori updated successfully');
+            } else {
+                throw new Error('Failed to update Shikimori');
+            }
+        } catch (error) {
+            log('Shikimori sync error:', error.message);
         }
     }
 
-    function initSettings() {
-        Lampa.Settings.listener.follow('open', function (e) {
-            if (e.name === 'plugins') {
-                authBlock().forEach(el => {
-                    Lampa.Settings.main().append(el);
-                });
+    // Синхронизация с KinoPub
+    async function syncKinoPub(title, season, episode) {
+        try {
+            log('Sending to KinoPub:', title);
+            const response = await fetch(`${KINOPUB_API}/history/add`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${getSetting('kinopubToken')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    title,
+                    season: season || undefined,
+                    episode: episode || undefined
+                })
+            });
+            if (response.ok) {
+                log('KinoPub updated successfully');
+            } else {
+                throw new Error('Failed to update KinoPub');
             }
-        });
+        } catch (error) {
+            log('KinoPub sync error:', error.message);
+        }
     }
 
-    function startPlugin() {
-        log('Запуск плагина...');
-        initSettings();
-        Lampa.Player.listener.follow('ended', handlePlaybackEnd);
-    }
-
-    Lampa.Plugins.register(PLUGIN_ID, {
-        title: PLUGIN_NAME,
-        version: '1.0.0',
-        description: 'Автоматическая синхронизация просмотров с Shikimori и KinoPub',
-        author: 'pon4e / ChatGPT',
+    // Добавление настроек в интерфейс Lampa
+    Lampa.Settings.add('plugins', {
+        id: 'sync_plugin',
+        name: 'Синхронизация просмотров',
+        items: [
+            {
+                type: 'toggle',
+                name: 'Включить синхронизацию',
+                value: () => getSetting('enabled'),
+                onChange: (value) => setSetting('enabled', value)
+            },
+            {
+                type: 'input',
+                name: 'Токен Shikimori',
+                value: () => getSetting('shikimoriToken'),
+                onChange: (value) => setSetting('shikimoriToken', value),
+                placeholder: 'Введите access_token'
+            },
+            {
+                type: 'input',
+                name: 'Токен KinoPub',
+                value: () => getSetting('kinopubToken'),
+                onChange: (value) => setSetting('kinopubToken', value),
+                placeholder: 'Введите kp_remember_token'
+            },
+            {
+                type: 'button',
+                name: 'Очистить токены',
+                onClick: () => {
+                    setSetting('shikimoriToken', '');
+                    setSetting('kinopubToken', '');
+                    Lampa.Settings.update();
+                    log('Tokens cleared');
+                }
+            },
+            {
+                type: 'html',
+                name: 'Инструкция',
+                html: () => `
+                    <div style="padding: 10px;">
+                        <p>1. Shikimori: Используйте OAuth2 для получения токена.</p>
+                        <p>2. KinoPub: Введите токен из cookies (kp_remember_token).</p>
+                        <p>Логи доступны в консоли разработчика.</p>
+                    </div>
+                `
+            }
+        ]
     });
 
-    startPlugin();
+    log('Plugin initialized');
 })();
